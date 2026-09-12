@@ -148,7 +148,7 @@ import { List, LayoutGrid } from "@lucide/vue";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ref } from "vue";
 import TestImg from "@/assets/images/test.png";
-import { formatFromNow } from "@/utils/date";
+import { formatFromNow } from "@/lib/date";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
