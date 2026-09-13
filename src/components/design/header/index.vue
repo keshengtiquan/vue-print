@@ -31,13 +31,12 @@
         />
       </div>
       <NumberField
+        v-model="designState.scale"
         class="pointer-events-auto"
-        v-model="quantity"
-        :min="0.1"
-        :max="2"
+        :min="SCALE_MIN"
+        :max="SCALE_MAX"
         :format-options="{ style: 'percent' }"
         :step="0.1"
-        @update:model-value="onChange"
       >
         <NumberFieldContent>
           <NumberFieldDecrement class="cursor-pointer" />
@@ -68,15 +67,12 @@ import {
 } from "@/components/ui/number-field";
 import { Button } from "@/components/ui/button";
 import { Redo, Undo, Moon, ArrowDownToLine } from "@lucide/vue";
+import { designState, SCALE_MIN, SCALE_MAX } from "@/components/design/designState";
 
 import { ref } from "vue";
 
-const quantity = ref(1);
 const disablePrevHistory = ref(true);
 const disableNextHistory = ref(false);
-const onChange = (value: number) => {
-  console.log(value);
-};
 </script>
 
 <style scoped></style>
