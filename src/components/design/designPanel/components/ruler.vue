@@ -35,12 +35,12 @@ const draw = () => {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const style = getComputedStyle(canvas);
-  const bg = style.getPropertyValue("--pd-ruler-bg").trim() || "#F8F9FC";
-  const tick = style.getPropertyValue("--pd-ruler-tick").trim() || "#C1C7CD";
-  const tickMajor = style.getPropertyValue("--pd-ruler-tick-major").trim() || "#5F6368";
-  const label = style.getPropertyValue("--pd-ruler-label").trim() || "#5F6368";
-  const guideColor = style.getPropertyValue("--pd-ruler-guide").trim() || "#ff4d4f";
-  const fontSize = Number(style.getPropertyValue("--pd-ruler-font-size").trim()) || 9;
+  const bg = style.getPropertyValue("--ruler-bg").trim() || "#F8F9FC";
+  const tick = style.getPropertyValue("--ruler-tick").trim() || "#C1C7CD";
+  const tickMajor = style.getPropertyValue("--ruler-tick-major").trim() || "#5F6368";
+  const label = style.getPropertyValue("--ruler-label").trim() || "#5F6368";
+  const guideColor = style.getPropertyValue("--ruler-guide").trim() || "#ff4d4f";
+  const fontSize = Number(style.getPropertyValue("--ruler-font-size").trim()) || 9;
 
   // 背景
   ctx.fillStyle = bg;
@@ -132,11 +132,12 @@ onUnmounted(() => {
 <style scoped>
 canvas {
   display: block;
-  --pd-ruler-bg: #f8f9fc;
-  --pd-ruler-tick: #c1c7cd;
-  --pd-ruler-tick-major: #5f6368;
-  --pd-ruler-label: #5f6368;
-  --pd-ruler-guide: #2c08df;
-  --pd-ruler-font-size: 9px;
+
+  --ruler-bg: #f8f9fc;
+  --ruler-tick: #c1c7cd;
+  --ruler-tick-major: #5f6368;
+  --ruler-label: #5f6368;
+  --ruler-guide: #2c08df;
+  --ruler-font-size: 9px;
 }
 </style>

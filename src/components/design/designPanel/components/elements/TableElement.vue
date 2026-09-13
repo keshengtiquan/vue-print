@@ -11,9 +11,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { CSSProperties } from "vue";
-import { designState } from "@/components/design/designState";
+import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
 import type { TableElement } from "@/components/design/types";
+
+const designState = useDesignStore();
 
 const props = defineProps<{ element: TableElement }>();
 

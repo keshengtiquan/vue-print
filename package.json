@@ -23,6 +23,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.23",
     "echarts": "^6.1.0",
+    "pinia": "^4.0.3",
     "reka-ui": "^2.10.4",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",

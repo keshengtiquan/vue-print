@@ -24,9 +24,7 @@ src/components/design/
   material/index.vue                # 素材台（空壳）
   setting/index.vue                 # 属性台（空壳）
   statusLine/index.vue              # 底部状态栏，显示 mm 坐标
-  designState.ts                    # 共享响应式状态（无 Pinia，模块级 reactive 单例）
   types.ts                          # 元素数据模型（BaseElement + 各类型 + ResizeHandle）
-  useElements.ts                    # 元素 CRUD 工具函数
   designPanel/
     index.vue                       # 画布区：标尺 + 滚动容器 + 纸张 + 鼠标/缩放/滚动逻辑
     components/ruler.vue            # 单个标尺（canvas）
@@ -35,6 +33,9 @@ src/components/design/
       ElementLayer.vue              # 按 zIndex 排序遍历渲染元素
       ElementWrapper.vue            # 通用 transform + 选中/拖拽/缩放/旋转交互
       TextElement.vue / TableElement.vue / LineElement.vue / ImageElement.vue
+
+src/store/modules/
+  design.ts                         # 设计模块 Pinia store（useDesignStore，含元素 CRUD actions）
 ```
 
 页面布局（`views/design/index.vue`）：
@@ -51,27 +52,39 @@ src/components/design/
 </div>
 ```
 
-## 3. 共享状态 `designState.ts`
+## 3. 共享状态 `store/modules/design.ts`
 
-无 Pinia，用一个模块级 `reactive` 单例在兄弟组件间共享：
+用 Pinia store（`useDesignStore`）在兄弟组件间共享，元素 CRUD 收在 actions：
 
 ```ts
 export const SCALE_MIN = 0.1;   // 10%
 export const SCALE_MAX = 2;     // 200%
 
-export const designState = reactive({
-  paper: { widthMm: 210, heightMm: 297 }, // A4，当前写死，后续属性台可改
-  scale: 1,                                 // 缩放倍数，1 = 100%
-  mouse: { x: 0, y: 0 },                    // 光标 mm 坐标（相对纸张左上角原点）
-  inPanel: false,                           // 光标是否在 rootRef 内
-  elements: [] as Element[],                // 纸张上的素材元素
-  selectedId: null as string | null,        // 当前选中的元素 id
+export const useDesignStore = defineStore("design", {
+  state: () => ({
+    paper: { widthMm: 210, heightMm: 297 }, // A4，当前写死，后续属性台可改
+    scale: 1,                                 // 缩放倍数，1 = 100%
+    mouse: { x: 0, y: 0 },                    // 光标 mm 坐标（相对纸张左上角原点）
+    inPanel: false,                           // 光标是否在 rootRef 内
+    elements: [] as Element[],                // 纸张上的素材元素
+    selectedId: null as string | null,        // 当前选中的元素 id
+  }),
+  getters: {
+    sortedElements: (state) => [...state.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
+  },
+  actions: {
+    addElement(el) { ... },
+    removeElement(id) { ... },
+    selectElement(id) { ... },
+    getElement(id) { ... },
+    updateElement(id, patch) { ... },
+  },
 });
 ```
 
 - `scale` 由 header 数字框 / Ctrl+滚轮写入，designPanel 与标尺读取。
 - `mouse` 由 designPanel 写入，statusLine 读取。
-- `elements`/`selectedId` 由元素交互（`useElements.ts`）写入，`ElementLayer` 与（未来）属性台读取。
+- `elements`/`selectedId` 由元素交互（store actions）写入，`ElementLayer` 与（未来）属性台读取。
 - 视图尺寸（viewW/viewH）与滚动偏移是 designPanel 局部状态，不进共享（依赖 DOM）。
 
 ## 4. 坐标模型（核心）
@@ -196,7 +209,7 @@ const x = computed(() => (designState.inPanel ? designState.mouse.x.toFixed(1) :
 const y = computed(() => (designState.inPanel ? designState.mouse.y.toFixed(1) : "—"));
 ```
 
-### 5.5 元素系统（`types.ts` + `useElements.ts` + `elements/`）
+### 5.5 元素系统（`types.ts` + store actions + `elements/`）
 
 数据模型见 `types.ts`：所有元素继承 `BaseElement`（`id/type/x/y/width/height/rotation/zIndex`，几何单位 mm），按 `type` 扩展专属字段：
 
@@ -211,7 +224,7 @@ const y = computed(() => (designState.inPanel ? designState.mouse.y.toFixed(1) :
 
 **交互**（`ElementWrapper` 内，pointer events + `setPointerCapture`）：
 
-- 选中：pointerdown 在元素上 → `selectElement(id)`；点空白（rootRef `@pointerdown`）→ `selectedId = null`。
+- 选中：pointerdown 在元素上 → `designState.selectElement(id)`；点空白（rootRef `@pointerdown`）→ `selectedId = null`。
 - 拖拽移动：主体 pointermove 的屏幕位移 `/ pxPerMm` 累加到 `x/y`（从 pointerdown 快照绝对计算，避免累积漂移）。
 - 缩放：手柄 pointermove 位移先反向旋转 `-rotation` 得局部 `dxLocal/dyLocal`，再按手柄方向改 `width/height`（w/n 边同时改 x/y），最小 1mm；Line 同时按比例缩放 `start/end`。
 - 旋转：顶部圆形手柄，`angle = atan2(pointerY-cy, pointerX-cx)`，`rotation = 起始 rotation + (angle - 起始 angle)`（中心用 `getBoundingClientRect()` 的 AABB 中心，绕中心旋转时中心不变）。

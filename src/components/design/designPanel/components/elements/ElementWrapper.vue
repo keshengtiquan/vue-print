@@ -26,11 +26,12 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { designState } from "@/components/design/designState";
+import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
 import { elementComponents } from "./index";
-import { selectElement, updateElement } from "@/components/design/useElements";
 import type { Element, ResizeHandle } from "@/components/design/types";
+
+const designState = useDesignStore();
 
 const props = defineProps<{ element: Element }>();
 
@@ -94,20 +95,20 @@ function begin(e: PointerEvent) {
 }
 
 function onBodyPointerDown(e: PointerEvent) {
-  selectElement(props.element.id);
+  designState.selectElement(props.element.id);
   mode.value = "move";
   begin(e);
 }
 
 function onHandlePointerDown(h: ResizeHandle, e: PointerEvent) {
-  selectElement(props.element.id);
+  designState.selectElement(props.element.id);
   mode.value = "resize";
   activeHandle.value = h;
   begin(e);
 }
 
 function onRotatePointerDown(e: PointerEvent) {
-  selectElement(props.element.id);
+  designState.selectElement(props.element.id);
   mode.value = "rotate";
   const rect = elRef.value!.getBoundingClientRect();
   center.x = rect.left + rect.width / 2;
@@ -123,7 +124,7 @@ function onPointerMove(e: PointerEvent) {
   const dy = (e.clientY - startEl.clientY) / pxPerMm.value;
 
   if (mode.value === "move") {
-    updateElement(props.element.id, { x: startEl.x + dx, y: startEl.y + dy });
+    designState.updateElement(props.element.id, { x: startEl.x + dx, y: startEl.y + dy });
   } else if (mode.value === "resize") {
     const rad = (startEl.rotation * Math.PI) / 180;
     const dxLocal = dx * Math.cos(rad) + dy * Math.sin(rad);
@@ -131,7 +132,7 @@ function onPointerMove(e: PointerEvent) {
     applyResize(dxLocal, dyLocal);
   } else if (mode.value === "rotate") {
     const angle = (Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) / Math.PI;
-    updateElement(props.element.id, { rotation: startEl.rotation + (angle - startAngle.value) });
+    designState.updateElement(props.element.id, { rotation: startEl.rotation + (angle - startAngle.value) });
   }
 }
 
@@ -166,7 +167,7 @@ function applyResize(dxLocal: number, dyLocal: number) {
     patch.start = { x: startEl.start.x * sx, y: startEl.start.y * sy };
     patch.end = { x: startEl.end.x * sx, y: startEl.end.y * sy };
   }
-  updateElement(props.element.id, patch);
+  designState.updateElement(props.element.id, patch);
 }
 
 function onPointerUp() {

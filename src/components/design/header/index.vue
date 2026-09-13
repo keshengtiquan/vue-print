@@ -67,9 +67,11 @@ import {
 } from "@/components/ui/number-field";
 import { Button } from "@/components/ui/button";
 import { Redo, Undo, Moon, ArrowDownToLine } from "@lucide/vue";
-import { designState, SCALE_MIN, SCALE_MAX } from "@/components/design/designState";
+import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 
 import { ref } from "vue";
+
+const designState = useDesignStore();
 
 const disablePrevHistory = ref(true);
 const disableNextHistory = ref(false);

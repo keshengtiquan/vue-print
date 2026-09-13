@@ -28,10 +28,10 @@
       @scroll="onScroll"
       @wheel="onWheel"
     >
-      <div class="relative" :style="{ width: `${contentW}px`, height: `${contentH}px` }">
+      <div class="relative min-w-full min-h-full" :style="{ width: `${contentW}px`, height: `${contentH}px` }">
         <div
           class="absolute overflow-hidden bg-white shadow"
-          :style="{ left: `${paperX}px`, top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
+          :style="{ left: '50%', transform: 'translateX(-50%)', top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
         >
           <ElementLayer />
         </div>
@@ -45,8 +45,10 @@ import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import Ruler from "./components/ruler.vue";
 import ElementLayer from "./components/elements/ElementLayer.vue";
-import { designState, SCALE_MIN, SCALE_MAX } from "@/components/design/designState";
+import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
+
+const designState = useDesignStore();
 
 const RULER_SIZE = 22;
 const PAPER_MARGIN = 32;
@@ -62,9 +64,11 @@ const inPanel = ref(false);
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
 const paperW = computed(() => designState.paper.widthMm * pxPerMm.value);
 const paperH = computed(() => designState.paper.heightMm * pxPerMm.value);
-const contentW = computed(() => Math.max(rulerGeom.viewW, paperW.value + PAPER_MARGIN * 2));
-const contentH = computed(() => Math.max(rulerGeom.viewH, paperH.value + PAPER_MARGIN * 2));
-const paperX = computed(() => (contentW.value - paperW.value) / 2); // 横向居中
+const contentW = computed(() => paperW.value + PAPER_MARGIN * 2);
+const contentH = computed(() => paperH.value + PAPER_MARGIN * 2);
+// 内容层实际渲染宽度 = max(内容宽, 可视区宽)；min-w-full 会把它撑满可视区
+const renderW = computed(() => Math.max(contentW.value, rulerGeom.viewW));
+const paperX = computed(() => (renderW.value - paperW.value) / 2); // 纸张左边缘相对内容区的偏移
 const paperY = computed(() => PAPER_MARGIN); // 顶部留白
 
 // 标尺原点偏移（0mm 落在尺条上的 px 位置，随滚动变化）
@@ -135,14 +139,17 @@ function zoomAt(next: number, ax: number, ay: number) {
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 const measureRuler = () => {
-  const area = rootRef.value;
+  const area = scrollRef.value;
   if (!area) return;
 
-  rulerGeom.viewW = area.clientWidth - RULER_SIZE;
-  rulerGeom.viewH = area.clientHeight - RULER_SIZE;
+  // 用滚动区自身的真实可视尺寸（getBoundingClientRect 保留小数），
+  // 与标尺长度、纸张居中、缩放钳制保持同一测量基准，避免 clientWidth 取整误差
+  const rect = area.getBoundingClientRect();
+  rulerGeom.viewW = rect.width;
+  rulerGeom.viewH = rect.height;
 };
 onMounted(measureRuler);
-useResizeObserver(rootRef, measureRuler);
+useResizeObserver(scrollRef, measureRuler);
 </script>
 
 <style scoped></style>

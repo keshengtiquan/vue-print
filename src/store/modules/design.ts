@@ -1,0 +1,56 @@
+import { defineStore } from "pinia";
+import type { Element } from "@/components/design/types";
+
+export const SCALE_MIN = 0.1;
+export const SCALE_MAX = 2;
+
+export const useDesignStore = defineStore("design", {
+  state: () => ({
+    /** 纸张尺寸（mm） */
+    paper: { widthMm: 210, heightMm: 297 },
+    /** 缩放倍数，1 = 100% */
+    scale: 1,
+    /** 鼠标在纸张区的坐标（mm，相对纸张原点） */
+    mouse: { x: 0, y: 0 },
+    /** 鼠标是否在 rootRef 内 */
+    inPanel: false,
+    /** 纸张上的素材元素 */
+    elements: [
+      { id: "1", x: 0, y: 0, width: 50, height: 50, type: "text", content: "hello" }
+    ] as Element[],
+    /** 当前选中的元素 id */
+    selectedId: null as string | null
+  }),
+
+  getters: {
+    /** 按 zIndex 升序排列的元素 */
+    sortedElements: (state) => [...state.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+  },
+
+  actions: {
+    addElement(el: Element) {
+      this.elements.push(el);
+    },
+
+    removeElement(id: string) {
+      const i = this.elements.findIndex((e) => e.id === id);
+      if (i !== -1) this.elements.splice(i, 1);
+      if (this.selectedId === id) this.selectedId = null;
+    },
+
+    selectElement(id: string | null) {
+      this.selectedId = id;
+    },
+
+    getElement(id: string): Element | undefined {
+      return this.elements.find((e) => e.id === id);
+    },
+
+    /** 更新元素字段（patch 可为任意字段，含类型专属字段如 start/end/content） */
+    updateElement(id: string, patch: Record<string, unknown>) {
+      const el = this.getElement(id);
+      if (!el) return;
+      Object.assign(el, patch);
+    }
+  }
+});
