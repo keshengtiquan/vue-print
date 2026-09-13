@@ -13,6 +13,7 @@
 - **缩放**：header 数字输入框（10%~200%）缩放纸张；Ctrl/⌘+滚轮以光标为锚点缩放（普通滚轮是原生滚动）。**只缩放纸张/标尺，不缩放整个网页。**
 - **滚动**：放大后纸张超出可视区时，用原生滚动容器查看，标尺固定不动、0 线随滚动偏移。
 - **resize 自适应**：窗口/容器尺寸变化时自动重排（`useResizeObserver`）。
+- **素材元素**：纸张上可放置文本/表格/直线/图片元素，支持拖拽移动、选中后虚线框 + 8 方向手柄缩放、绕中心旋转（策略模式按类型渲染）。
 
 ## 2. 组件结构
 
@@ -24,9 +25,16 @@ src/components/design/
   setting/index.vue                 # 属性台（空壳）
   statusLine/index.vue              # 底部状态栏，显示 mm 坐标
   designState.ts                    # 共享响应式状态（无 Pinia，模块级 reactive 单例）
+  types.ts                          # 元素数据模型（BaseElement + 各类型 + ResizeHandle）
+  useElements.ts                    # 元素 CRUD 工具函数
   designPanel/
     index.vue                       # 画布区：标尺 + 滚动容器 + 纸张 + 鼠标/缩放/滚动逻辑
     components/ruler.vue            # 单个标尺（canvas）
+    components/elements/            # 元素渲染（策略模式 DOM 组件）
+      index.ts                      # elementComponents 映射表（策略注册）
+      ElementLayer.vue              # 按 zIndex 排序遍历渲染元素
+      ElementWrapper.vue            # 通用 transform + 选中/拖拽/缩放/旋转交互
+      TextElement.vue / TableElement.vue / LineElement.vue / ImageElement.vue
 ```
 
 页面布局（`views/design/index.vue`）：
@@ -56,11 +64,14 @@ export const designState = reactive({
   scale: 1,                                 // 缩放倍数，1 = 100%
   mouse: { x: 0, y: 0 },                    // 光标 mm 坐标（相对纸张左上角原点）
   inPanel: false,                           // 光标是否在 rootRef 内
+  elements: [] as Element[],                // 纸张上的素材元素
+  selectedId: null as string | null,        // 当前选中的元素 id
 });
 ```
 
 - `scale` 由 header 数字框 / Ctrl+滚轮写入，designPanel 与标尺读取。
 - `mouse` 由 designPanel 写入，statusLine 读取。
+- `elements`/`selectedId` 由元素交互（`useElements.ts`）写入，`ElementLayer` 与（未来）属性台读取。
 - 视图尺寸（viewW/viewH）与滚动偏移是 designPanel 局部状态，不进共享（依赖 DOM）。
 
 ## 4. 坐标模型（核心）
@@ -100,6 +111,8 @@ mm = pxToMm((mouse - RULER_SIZE) - origin) / scale
 ```
 guide = mouse - RULER_SIZE
 ```
+
+元素坐标（mm，相对纸张左上角原点）：渲染时 `px = mm * pxPerMm`，缩放纸张自动跟随（mm 不变）。
 
 ## 5. 各文件职责与关键实现
 
@@ -183,6 +196,28 @@ const x = computed(() => (designState.inPanel ? designState.mouse.x.toFixed(1) :
 const y = computed(() => (designState.inPanel ? designState.mouse.y.toFixed(1) : "—"));
 ```
 
+### 5.5 元素系统（`types.ts` + `useElements.ts` + `elements/`）
+
+数据模型见 `types.ts`：所有元素继承 `BaseElement`（`id/type/x/y/width/height/rotation/zIndex`，几何单位 mm），按 `type` 扩展专属字段：
+
+- `TextElement`：`content / fontFamily / fontSize(mm) / fontWeight / color / textAlign`
+- `TableElement`：`rows / cols / cellStyle`
+- `LineElement`：`start / end`（相对元素左上角的局部 mm）+ `stroke{color,width}` + `dash`（`null` 实线 / `[n,m]` 虚线）
+- `ImageElement`：`src / objectFit`
+
+`rotation`/`zIndex`/`color`/`cellStyle` 等有默认值的字段为可选（组件内兜底，手动塞数据不会崩）。
+
+**策略渲染**：`elements/index.ts` 的 `elementComponents: Record<ElementType, Component>` 映射表即策略。`ElementLayer` 按 `zIndex` 排序遍历，`ElementWrapper` 负责通用层——`left/top/width/height` 用 `mm * pxPerMm`，`transform: rotate()` + `transform-origin: center`（绕中心旋转）；内部 `<component :is="elementComponents[el.type]" :element="el">` 渲染类型组件（只做内容，不做交互）。
+
+**交互**（`ElementWrapper` 内，pointer events + `setPointerCapture`）：
+
+- 选中：pointerdown 在元素上 → `selectElement(id)`；点空白（rootRef `@pointerdown`）→ `selectedId = null`。
+- 拖拽移动：主体 pointermove 的屏幕位移 `/ pxPerMm` 累加到 `x/y`（从 pointerdown 快照绝对计算，避免累积漂移）。
+- 缩放：手柄 pointermove 位移先反向旋转 `-rotation` 得局部 `dxLocal/dyLocal`，再按手柄方向改 `width/height`（w/n 边同时改 x/y），最小 1mm；Line 同时按比例缩放 `start/end`。
+- 旋转：顶部圆形手柄，`angle = atan2(pointerY-cy, pointerX-cx)`，`rotation = 起始 rotation + (angle - 起始 angle)`（中心用 `getBoundingClientRect()` 的 AABB 中心，绕中心旋转时中心不变）。
+
+选中态渲染虚线框（`.selection-box`，1px dashed）+ 8 手柄 + 旋转手柄，作为选中元素的子节点、随元素一起旋转（手柄天然落在旋转后的边角）。
+
 ## 6. CSS 变量（标尺主题）
 
 定义在 `ruler.vue` 的 `<style scoped>`，JS 里用 `getComputedStyle` 读取（带兜底默认值）：
@@ -211,14 +246,15 @@ export function mmToPx(mm: number) { return mm * (96 / 25.4); }
 ## 9. 已知限制 / 待办（未来开发方向）
 
 1. **纸张尺寸写死 A4**：`designState.paper` 固定，`setting`（属性台）是空壳，后续应接入纸张尺寸选择/自定义。
-2. **纸张上还没有实际设计内容**：目前纸张只是个白 div，没有文本/图片/图形元素、没有绘制与拖拽交互。
-3. **缩放范围 10%~200%**：`SCALE_MIN/MAX`，可放宽。
-4. **标尺重绘**：引导线随 mousemove 全量重绘整条尺条，未用 rAF/离屏分层（尺条很小，暂可接受）。
-5. **无撤销/重做**：header 的 Undo/Redo 是占位。
-6. **素材台/属性台未实现**：左右面板空壳。
-7. **滚动/平移**：目前原生滚动，标尺固定；尚未做「拖拽平移」（空格/中键）或「纸张锚定 + 滚动同步」的完整模型。
-8. **导出/预览**：按钮占位，未实现打印/导出。
-9. **坐标展示**：纸张左/上方的 22px 角区，mm 值可能为负（相对纸张原点），属预期。
+2. **文本不可编辑 / 表格无单元格数据**：文本双击进入编辑、表格单元格文本内容待做。
+3. **Line 仅直线 + 端点拖动待做**：当前 Line 用包围盒统一缩放，端点拖动、折线/曲线待做。
+4. **缩放范围 10%~200%**：`SCALE_MIN/MAX`，可放宽。
+5. **标尺重绘**：引导线随 mousemove 全量重绘整条尺条，未用 rAF/离屏分层（尺条很小，暂可接受）。
+6. **无撤销/重做**：header 的 Undo/Redo 是占位。
+7. **素材台/属性台未实现**：左右面板空壳；素材台拖出元素到纸张、属性台编辑选中元素属性待做。
+8. **导出/预览**：按钮占位；导出/打印需为每类型补 canvas `draw()` 策略渲染器。
+9. **元素交互细节**：拖拽元素时因 `setPointerCapture`，状态栏鼠标坐标暂不更新；未做键盘微调 / 自动置顶 / 多选。
+10. **坐标展示**：纸张左/上方的 22px 角区，mm 值可能为负（相对纸张原点），属预期。
 
 ## 10. 关键数值备忘
 
