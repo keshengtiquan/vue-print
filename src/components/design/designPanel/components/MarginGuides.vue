@@ -11,15 +11,16 @@
       缩放画布时恒定 1px 细线 + 3/3 的虚线节奏。
     -->
     <line
-      v-for="(l, i) in lines"
-      :key="i"
+      v-for="l in lines"
+      :key="l.id"
       class="margin-guides__line"
+      :class="{ 'margin-guides__line--active': activeSnapLines.includes(l.id) }"
       :x1="l.x1"
       :y1="l.y1"
       :x2="l.x2"
       :y2="l.y2"
       stroke-width="1"
-      stroke-dasharray="3 3"
+      :stroke-dasharray="activeSnapLines.includes(l.id) ? 'none' : '3 3'"
       vector-effect="non-scaling-stroke"
     />
   </svg>
@@ -28,8 +29,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useDesignStore } from "@/store/modules/design";
+import { useSnapFeedback, type SnapLine } from "../composables/useSnapFeedback";
 
 const store = useDesignStore();
+const { activeSnapLines } = useSnapFeedback();
 
 const m = computed(() => store.marginMm);
 const paperW = computed(() => store.paper.widthMm);
@@ -42,16 +45,16 @@ const paperH = computed(() => store.paper.heightMm);
  * 这样即使元素跨出边界，也能一眼读出它是否越过了某条边距线。
  * 边距设得比纸张还大时坐标会落到画布外，由 viewBox 自动裁掉，无需额外钳制。
  */
-const lines = computed(() => {
+const lines = computed<{ id: SnapLine; x1: number; y1: number; x2: number; y2: number }[]>(() => {
   const x0 = m.value.left;
   const y0 = m.value.top;
   const x1 = paperW.value - m.value.right;
   const y1 = paperH.value - m.value.bottom;
   return [
-    { x1: 0, y1: y0, x2: paperW.value, y2: y0 }, // 上：横向贯穿
-    { x1: 0, y1: y1, x2: paperW.value, y2: y1 }, // 下：横向贯穿
-    { x1: x0, y1: 0, x2: x0, y2: paperH.value }, // 左：纵向贯穿
-    { x1: x1, y1: 0, x2: x1, y2: paperH.value } // 右：纵向贯穿
+    { id: "top", x1: 0, y1: y0, x2: paperW.value, y2: y0 }, // 上：横向贯穿
+    { id: "bottom", x1: 0, y1: y1, x2: paperW.value, y2: y1 }, // 下：横向贯穿
+    { id: "left", x1: x0, y1: 0, x2: x0, y2: paperH.value }, // 左：纵向贯穿
+    { id: "right", x1: x1, y1: 0, x2: x1, y2: paperH.value } // 右：纵向贯穿
   ];
 });
 </script>
@@ -78,5 +81,20 @@ const lines = computed(() => {
 .margin-guides__line {
   stroke: var(--color-muted-foreground, #64748b);
   opacity: 0.5;
+  transition:
+    stroke 80ms linear,
+    opacity 80ms linear;
+}
+
+/*
+  拖拽命中时这条线转为实线 + 主题色 + 全不透明。
+  吸附必须"看得见"：元素悄悄粘住会被误判成卡顿或掉帧，
+  给一条明确的实线高亮，用户才知道这是功能不是 bug。
+  这里用 primary 不违背"边距线用中性色"的原则 —— 那条原则针对的是静息态，
+  命中态语义本就是"激活/对齐"，与元素选中框同一语义色。
+*/
+.margin-guides__line--active {
+  stroke: var(--color-primary, #1a73e8);
+  opacity: 1;
 }
 </style>

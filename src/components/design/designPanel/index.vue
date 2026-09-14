@@ -31,8 +31,10 @@
       <div class="relative min-w-full min-h-full" :style="{ width: `${contentW}px`, height: `${contentH}px` }">
         <div
           class="absolute overflow-hidden bg-white shadow"
-          :style="{ left: '50%', transform: 'translateX(-50%)', top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
+          :style="{ left: `${paperX}px`, top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
         >
+          <!-- 网格在元素**之下**：它是纸纹背景，被元素盖住才符合直觉 -->
+          <PaperGrid v-if="designState.showGrid" />
           <ElementLayer />
           <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
           <MarginGuides v-if="designState.showMarginGuides" />
@@ -48,6 +50,7 @@ import { useResizeObserver } from "@vueuse/core";
 import Ruler from "./components/ruler.vue";
 import ElementLayer from "./components/elements/ElementLayer.vue";
 import MarginGuides from "./components/MarginGuides.vue";
+import PaperGrid from "./components/PaperGrid.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
 
@@ -71,7 +74,14 @@ const contentW = computed(() => paperW.value + PAPER_MARGIN * 2);
 const contentH = computed(() => paperH.value + PAPER_MARGIN * 2);
 // 内容层实际渲染宽度 = max(内容宽, 可视区宽)；min-w-full 会把它撑满可视区
 const renderW = computed(() => Math.max(contentW.value, rulerGeom.viewW));
-const paperX = computed(() => (renderW.value - paperW.value) / 2); // 纸张左边缘相对内容区的偏移
+/**
+ * 纸张左边缘相对内容区的偏移。
+ * 必须用它做**显式定位**（left: paperX），不要用 `left:50% + translateX(-50%)`：
+ * 后者是 CSS 按容器实际宽度居中，而标尺 origin 用的是本计算值 —— 两套基准，
+ * 一旦出现滚动条（容器实际宽不含滚动条、viewW 含滚动条）就会对不齐，
+ * 且偏差随缩放/滚动条有无变化，表现为"某些缩放倍率下 0 刻度不对齐纸边"。
+ */
+const paperX = computed(() => (renderW.value - paperW.value) / 2);
 const paperY = computed(() => PAPER_MARGIN); // 顶部留白
 
 // 标尺原点偏移（0mm 落在尺条上的 px 位置，随滚动变化）
@@ -145,11 +155,20 @@ const measureRuler = () => {
   const area = scrollRef.value;
   if (!area) return;
 
-  // 用滚动区自身的真实可视尺寸（getBoundingClientRect 保留小数），
-  // 与标尺长度、纸张居中、缩放钳制保持同一测量基准，避免 clientWidth 取整误差
+  /*
+    可视尺寸取"不含滚动条、且保留小数"的值：
+    - getBoundingClientRect() 保留小数，但**包含滚动条**；
+    - clientWidth/clientHeight 不含滚动条，但会被**取整**。
+    两者单独用都有偏差，所以组合：rect 的小数值 - (offset - client) 的滚动条宽度。
+    这样既保留亚像素精度，又与内容区 min-w-full / min-h-full 的 100% 基准
+    （padding box，不含滚动条）严格一致 —— 否则滚动条出现时，算出的居中基准
+    会比真实可视区宽约半个滚动条，纸张就不再居中、标尺 0 刻度也对不上纸边。
+  */
   const rect = area.getBoundingClientRect();
-  rulerGeom.viewW = rect.width;
-  rulerGeom.viewH = rect.height;
+  const sbV = area.offsetWidth - area.clientWidth; // 垂直滚动条宽度（无则为 0）
+  const sbH = area.offsetHeight - area.clientHeight; // 水平滚动条宽度（无则为 0）
+  rulerGeom.viewW = Math.max(0, rect.width - sbV);
+  rulerGeom.viewH = Math.max(0, rect.height - sbH);
 };
 onMounted(measureRuler);
 useResizeObserver(scrollRef, measureRuler);

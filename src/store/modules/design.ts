@@ -12,6 +12,14 @@ export const useDesignStore = defineStore("design", {
     marginMm: { top: 10, right: 10, bottom: 10, left: 10 },
     /** 画布上是否显示页边距辅助线（视图偏好，不参与打印输出） */
     showMarginGuides: true,
+    /** 画布纸张上是否显示设计网格（视图偏好，不参与打印输出） */
+    showGrid: false,
+    /**
+     * 吸附总开关（编辑偏好，不参与打印输出）。
+     * 关闭后移动不再吸页边距线、旋转不再吸正交角/15° 步进，
+     * 完全按自由位移走 —— 排版到 0.5mm 级时需要它。
+     */
+    snapEnabled: true,
     /** 缩放倍数，1 = 100% */
     scale: 1,
     /** 鼠标在纸张区的坐标（mm，相对纸张原点） */
