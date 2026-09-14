@@ -8,6 +8,10 @@ export const useDesignStore = defineStore("design", {
   state: () => ({
     /** 纸张尺寸（mm） */
     paper: { widthMm: 210, heightMm: 297 },
+    /** 页面页边距（mm，四向独立） */
+    marginMm: { top: 10, right: 10, bottom: 10, left: 10 },
+    /** 画布上是否显示页边距辅助线（视图偏好，不参与打印输出） */
+    showMarginGuides: true,
     /** 缩放倍数，1 = 100% */
     scale: 1,
     /** 鼠标在纸张区的坐标（mm，相对纸张原点） */

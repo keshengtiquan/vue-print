@@ -37,7 +37,8 @@ export default {
     "selector-pseudo-class-no-unknown": [
       true,
       { ignorePseudoClasses: ["deep", "global", "slotted"] }
-    ]
+    ],
+    "selector-class-pattern": null
   },
   ignoreFiles: ["dist/**", "node_modules/**", "public/**"]
 };

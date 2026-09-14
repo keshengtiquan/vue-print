@@ -34,6 +34,8 @@
           :style="{ left: '50%', transform: 'translateX(-50%)', top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
         >
           <ElementLayer />
+          <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
+          <MarginGuides v-if="designState.showMarginGuides" />
         </div>
       </div>
     </div>
@@ -45,6 +47,7 @@ import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { useResizeObserver } from "@vueuse/core";
 import Ruler from "./components/ruler.vue";
 import ElementLayer from "./components/elements/ElementLayer.vue";
+import MarginGuides from "./components/MarginGuides.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
 
