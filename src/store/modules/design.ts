@@ -17,6 +17,29 @@ export const useDesignStore = defineStore("design", {
     /** 纸张上的素材元素 */
     elements: [
       { id: "1", x: 0, y: 0, width: 50, height: 50, type: "text", content: "hello" }
+      // { id: "2", x: 20, y: 20, width: 100, height: 100, type: "table", rows: 3, cols: 5 }
+      // {
+      //   id: "4",
+      //   type: "image",
+      //   x: 10,
+      //   y: 10,
+      //   width: 50,
+      //   height: 100,
+      //   src: "https://cdn.independent-photo.com/wp-content/uploads/2022/02/Yifeng-Ding-1800x1192.jpeg?width=500&quality=85&format=webp%20500w,%20https://cdn.independent-photo.com/wp-content/uploads/2022/02/Yifeng-Ding-1800x1192.jpeg?width=900&quality=85&format=webp%20900w,%20https://cdn.independent-photo.com/wp-content/uploads/2022/02/Yifeng-Ding-1800x1192.jpeg?width=1400&quality=85&format=webp%201400w",
+      //   objectFit: "contain"
+      // }
+      // {
+      //   id: "3",
+      //   width: 10,
+      //   height: 10,
+      //   x: 10,
+      //   y: 10,
+      //   type: "line",
+      //   start: { x: 0, y: 0 },
+      //   end: { x: 0, y: 10 },
+      //   stroke: { color: "#000", width: 0.5 },
+      //   dash: null
+      // }
     ] as Element[],
     /** 当前选中的元素 id */
     selectedId: null as string | null
