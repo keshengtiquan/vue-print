@@ -12,15 +12,15 @@
     -->
     <line
       v-for="l in lines"
-      :key="l.id"
+      :key="l.key"
       class="margin-guides__line"
-      :class="{ 'margin-guides__line--active': activeSnapLines.includes(l.id) }"
+      :class="{ 'margin-guides__line--active': activeSnapKeys.includes(l.key) }"
       :x1="l.x1"
       :y1="l.y1"
       :x2="l.x2"
       :y2="l.y2"
       stroke-width="1"
-      :stroke-dasharray="activeSnapLines.includes(l.id) ? 'none' : '3 3'"
+      :stroke-dasharray="activeSnapKeys.includes(l.key) ? 'none' : '3 3'"
       vector-effect="non-scaling-stroke"
     />
   </svg>
@@ -29,10 +29,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useDesignStore } from "@/store/modules/design";
-import { useSnapFeedback, type SnapLine } from "../composables/useSnapFeedback";
+import { useSnapFeedback, marginKey, type SnapKey } from "../composables/useSnapFeedback";
 
 const store = useDesignStore();
-const { activeSnapLines } = useSnapFeedback();
+const { activeSnapKeys } = useSnapFeedback();
 
 const m = computed(() => store.marginMm);
 const paperW = computed(() => store.paper.widthMm);
@@ -45,16 +45,16 @@ const paperH = computed(() => store.paper.heightMm);
  * 这样即使元素跨出边界，也能一眼读出它是否越过了某条边距线。
  * 边距设得比纸张还大时坐标会落到画布外，由 viewBox 自动裁掉，无需额外钳制。
  */
-const lines = computed<{ id: SnapLine; x1: number; y1: number; x2: number; y2: number }[]>(() => {
+const lines = computed<{ key: SnapKey; x1: number; y1: number; x2: number; y2: number }[]>(() => {
   const x0 = m.value.left;
   const y0 = m.value.top;
   const x1 = paperW.value - m.value.right;
   const y1 = paperH.value - m.value.bottom;
   return [
-    { id: "top", x1: 0, y1: y0, x2: paperW.value, y2: y0 }, // 上：横向贯穿
-    { id: "bottom", x1: 0, y1: y1, x2: paperW.value, y2: y1 }, // 下：横向贯穿
-    { id: "left", x1: x0, y1: 0, x2: x0, y2: paperH.value }, // 左：纵向贯穿
-    { id: "right", x1: x1, y1: 0, x2: x1, y2: paperH.value } // 右：纵向贯穿
+    { key: marginKey("top"), x1: 0, y1: y0, x2: paperW.value, y2: y0 }, // 上：横向贯穿
+    { key: marginKey("bottom"), x1: 0, y1: y1, x2: paperW.value, y2: y1 }, // 下：横向贯穿
+    { key: marginKey("left"), x1: x0, y1: 0, x2: x0, y2: paperH.value }, // 左：纵向贯穿
+    { key: marginKey("right"), x1: x1, y1: 0, x2: x1, y2: paperH.value } // 右：纵向贯穿
   ];
 });
 </script>

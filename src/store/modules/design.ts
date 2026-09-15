@@ -1,5 +1,9 @@
 import { defineStore } from "pinia";
-import type { Element } from "@/components/design/types";
+import type { Element, Guide, GuideDir } from "@/components/design/types";
+
+/** 生成局部唯一 id。仅用于画布内的临时对象（辅助线），不要求跨会话稳定 */
+let seed = 0;
+const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seed++).toString(36)}`;
 
 export const SCALE_MIN = 0.1;
 export const SCALE_MAX = 2;
@@ -15,8 +19,19 @@ export const useDesignStore = defineStore("design", {
     /** 画布纸张上是否显示设计网格（视图偏好，不参与打印输出） */
     showGrid: false,
     /**
+     * 辅助线（mm，相对纸张原点）。这是**文档数据**而非视图偏好 ——
+     * 辅助线是设计稿的一部分，换台机器打开还应该在那儿。
+     */
+    guides: [] as Guide[],
+    /**
+     * 画布上是否显示辅助线（视图偏好，不参与打印输出）。
+     * 关闭 = 彻底关闭：既不渲染，也不参与吸附 ——
+     * 看不见的东西还在拽元素是纯粹的困惑，所以显隐与行为必须绑定。
+     */
+    showGuides: true,
+    /**
      * 吸附总开关（编辑偏好，不参与打印输出）。
-     * 关闭后移动不再吸页边距线、旋转不再吸正交角/15° 步进，
+     * 关闭后移动不再吸页边距线/辅助线，旋转不再吸正交角/15° 步进，
      * 完全按自由位移走 —— 排版到 0.5mm 级时需要它。
      */
     snapEnabled: true,
@@ -86,6 +101,28 @@ export const useDesignStore = defineStore("design", {
       const el = this.getElement(id);
       if (!el) return;
       Object.assign(el, patch);
+    },
+
+    /** 新增一条辅助线 */
+    addGuide(dir: GuideDir, pos: number): Guide {
+      const guide: Guide = { id: nextId("guide"), dir, pos };
+      this.guides.push(guide);
+      return guide;
+    },
+
+    /** 移动辅助线到新位置（mm） */
+    moveGuide(id: string, pos: number) {
+      const guide = this.guides.find((g) => g.id === id);
+      if (guide) guide.pos = pos;
+    },
+
+    removeGuide(id: string) {
+      const i = this.guides.findIndex((g) => g.id === id);
+      if (i !== -1) this.guides.splice(i, 1);
+    },
+
+    clearGuides() {
+      this.guides = [];
     }
   }
 });

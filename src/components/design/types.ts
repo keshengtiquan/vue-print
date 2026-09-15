@@ -47,3 +47,21 @@ export interface ImageElement extends BaseElement {
 }
 
 export type Element = TextElement | TableElement | LineElement | ImageElement;
+
+/**
+ * 辅助线方向。注意它与拖出它的标尺是**交叉**的：
+ * - "v" 竖线：位置由横坐标决定，从**顶部水平标尺**向下拖出
+ * - "h" 横线：位置由纵坐标决定，从**左侧垂直标尺**向右拖出
+ */
+export type GuideDir = "v" | "h";
+
+/**
+ * 辅助线：用户手动拖出的对齐参考线。
+ * pos 单位 mm、相对**纸张左上角原点**（与元素坐标系一致），
+ * 因此缩放、切换纸张方向都自动跟随，不需要维护两份坐标。
+ */
+export interface Guide {
+  id: string;
+  dir: GuideDir;
+  pos: number;
+}

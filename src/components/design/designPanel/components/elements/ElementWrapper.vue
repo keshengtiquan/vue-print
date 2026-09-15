@@ -41,11 +41,11 @@ import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
 import { elementComponents } from "./index";
 import { useDrag } from "../../composables/useDrag";
-import { useSnapFeedback, type SnapLine } from "../../composables/useSnapFeedback";
+import { useSnapFeedback, marginKey, guideKey, type SnapKey } from "../../composables/useSnapFeedback";
 import type { Element, ResizeHandle } from "@/components/design/types";
 
 const designState = useDesignStore();
-const { setSnapLines, clearSnapLines } = useSnapFeedback();
+const { setSnapKeys, clearSnapKeys } = useSnapFeedback();
 
 const props = defineProps<{ element: Element }>();
 
@@ -97,8 +97,8 @@ const ROTATE_ORTHO_SNAP = 1.5;
 /** 移动时吸附到页边距线的磁吸范围（屏幕 px；换算成 mm 后再比较） */
 const MARGIN_SNAP_PX = 6;
 
-/** 一条可吸附的边距线：id 用于高亮反馈，at 是它在纸张坐标系里的位置（mm） */
-type SnapTarget = { id: SnapLine; at: number };
+/** 一条可吸附的目标线：key 用于命中高亮，at 是它在纸张坐标系里的位置（mm） */
+type SnapTarget = { key: SnapKey; at: number };
 
 /**
  * 把某个轴上的位置吸附到最近的边距线。
@@ -110,11 +110,11 @@ type SnapTarget = { id: SnapLine; at: number };
  * @param size 元素在该轴的尺寸
  * @param lines 该轴上的边距线
  * @param tol 容差（mm）
- * @returns 吸附后的起点，以及命中的线段 id（未命中为 null）
+ * @returns 吸附后的起点，以及命中的目标线 key（未命中为 null）
  */
 function snapAxis(pos: number, size: number, lines: SnapTarget[], tol: number) {
   let bestValue = pos;
-  let bestId: SnapLine | null = null;
+  let bestKey: SnapKey | null = null;
   let bestDist = Infinity;
   for (const line of lines) {
     for (const edge of [pos, pos + size]) {
@@ -122,34 +122,56 @@ function snapAxis(pos: number, size: number, lines: SnapTarget[], tol: number) {
       const dist = Math.abs(delta);
       if (dist <= tol && dist < bestDist) {
         bestValue = pos + delta;
-        bestId = line.id;
+        bestKey = line.key;
         bestDist = dist;
       }
     }
   }
-  return { value: bestValue, hit: bestId };
+  return { value: bestValue, hit: bestKey };
 }
 
 /**
- * 移动吸附：让元素边缘对齐到页边距线（版心边界）。
+ * 收集某个轴上的全部吸附目标：两条页边距线 + 该轴上的所有辅助线。
+ *
+ * 辅助线只在 `showGuides` 打开时才参与 —— 开关关掉就是不显示也不吸附，
+ * 否则会出现"看不见的东西在拽我"。
+ * 顺带过滤掉纸张外的线：它们多半是纸张尺寸改过之前的残留，拿来吸附只会让人困惑。
+ */
+function snapTargets(dir: "v" | "h"): SnapTarget[] {
+  const m = designState.marginMm;
+  const paper = designState.paper;
+  const sizeMm = dir === "v" ? paper.widthMm : paper.heightMm;
+  const edges: SnapTarget[] =
+    dir === "v"
+      ? [
+          { key: marginKey("left"), at: m.left },
+          { key: marginKey("right"), at: paper.widthMm - m.right }
+        ]
+      : [
+          { key: marginKey("top"), at: m.top },
+          { key: marginKey("bottom"), at: paper.heightMm - m.bottom }
+        ];
+  if (!designState.showGuides) return edges;
+  for (const g of designState.guides) {
+    if (g.dir !== dir || g.pos < 0 || g.pos > sizeMm) continue;
+    edges.push({ key: guideKey(g.id), at: g.pos });
+  }
+  return edges;
+}
+
+/**
+ * 移动吸附：让元素边缘对齐到页边距线与辅助线。
  * 按住 Alt 临时关闭 —— 精细定位时不该被磁吸拽走，这是主流工具的约定。
  *
  * 返回命中线是为了高亮：吸附如果只是"元素悄悄粘住了"，用户会以为是卡顿。
  */
 function snapMove(x: number, y: number, w: number, h: number, altKey: boolean) {
   // 总开关关闭 / 按住 Alt → 自由位移。Alt 时必须返回空 hits，否则高亮会残留。
-  if (!designState.snapEnabled || altKey) return { x, y, hits: [] as SnapLine[] };
+  if (!designState.snapEnabled || altKey) return { x, y, hits: [] as SnapKey[] };
   const tol = MARGIN_SNAP_PX / pxPerMm.value;
-  const m = designState.marginMm;
-  const sx = snapAxis(x, w, [
-    { id: "left", at: m.left },
-    { id: "right", at: designState.paper.widthMm - m.right }
-  ], tol);
-  const sy = snapAxis(y, h, [
-    { id: "top", at: m.top },
-    { id: "bottom", at: designState.paper.heightMm - m.bottom }
-  ], tol);
-  const hits: SnapLine[] = [];
+  const sx = snapAxis(x, w, snapTargets("v"), tol);
+  const sy = snapAxis(y, h, snapTargets("h"), tol);
+  const hits: SnapKey[] = [];
   if (sx.hit) hits.push(sx.hit);
   if (sy.hit) hits.push(sy.hit);
   return { x: sx.value, y: sy.value, hits };
@@ -217,7 +239,7 @@ const drag = useDrag({
         x: snapped.x - startEl.x,
         y: snapped.y - startEl.y
       };
-      setSnapLines(snapped.hits);
+      setSnapKeys(snapped.hits);
     } else if (mode.value === "resize") {
       const rad = (startEl.rotation * Math.PI) / 180;
       const dxLocal = (dx * Math.cos(rad) + dy * Math.sin(rad)) / pxPerMm.value;
@@ -262,7 +284,7 @@ const drag = useDrag({
     transient.value = { x: 0, y: 0, w: 0, h: 0, rot: 0 };
     mode.value = "none";
     isSnapped.value = false;
-    clearSnapLines();
+    clearSnapKeys();
   }
 });
 onUnmounted(drag.dispose);

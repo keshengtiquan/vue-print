@@ -7,7 +7,7 @@
     <span class="readout">x: <span class="readout__num">{{ x }}</span> mm</span>
     <span class="readout">y: <span class="readout__num">{{ y }}</span> mm</span>
 
-    <!-- 读数与开关的分界：坐标是"看"，后面两个是"切"，用一条细竖线隔开职责 -->
+    <!-- 读数与开关的分界：坐标是"看"，后面是"切"，用一条细竖线隔开职责 -->
     <span class="status-divider" aria-hidden="true"></span>
 
     <!--
@@ -30,8 +30,25 @@
       </button>
 
       <!--
+        辅助线显隐开关。关闭是彻底的：不显示、也不参与吸附 ——
+        看不见的东西还在拽元素，只会让人以为是 bug。
+      -->
+      <button
+        type="button"
+        class="view-toggle"
+        :class="{ 'view-toggle--on': designState.showGuides }"
+        :aria-pressed="designState.showGuides"
+        title="显示辅助线（从标尺拖出；关闭时不显示也不吸附）"
+        @click="designState.showGuides = !designState.showGuides"
+      >
+        <Ruler class="view-toggle__icon" />
+        <span>辅助线</span>
+      </button>
+
+      <!--
         吸附总开关。label 随状态在 "吸附" / "自由" 之间切换 ——
         只靠配色表达开关态在状态栏这种窄空间里不够直觉，文字直接说出当前模式更省脑。
+        排在最后：前两个是"显示什么"，它是"怎么操作"，职责不同。
       -->
       <button
         type="button"
@@ -40,7 +57,7 @@
         :aria-pressed="designState.snapEnabled"
         :title="
           designState.snapEnabled
-            ? '吸附已开启：移动吸页边距线，旋转吸正交角（按住 Alt / Shift 可临时反向）'
+            ? '吸附已开启：移动吸页边距线与辅助线，旋转吸正交角（按住 Alt / Shift 可临时反向）'
             : '吸附已关闭：移动与旋转均为自由位移'
         "
         @click="designState.snapEnabled = !designState.snapEnabled"
@@ -48,13 +65,28 @@
         <Magnet class="view-toggle__icon" />
         <span>{{ designState.snapEnabled ? "吸附" : "自由" }}</span>
       </button>
+
+      <!--
+        清除全部：辅助线一多，逐条双击删很折磨。
+        没有辅助线时直接不渲染 —— 它是状态栏最右侧元素，显隐不会推动任何东西，
+        所以不需要像坐标读数那样为它预留宽度。
+      -->
+      <button
+        v-if="designState.guides.length"
+        type="button"
+        class="view-action"
+        :title="`清除全部辅助线（${designState.guides.length} 条）`"
+        @click="designState.clearGuides()"
+      >
+        <Trash class="view-action__icon" />
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Grid3x3, Magnet } from "@lucide/vue";
+import { Grid3x3, Magnet, Ruler, Trash } from "@lucide/vue";
 import { useDesignStore } from "@/store/modules/design";
 
 const designState = useDesignStore();
@@ -140,6 +172,42 @@ const y = computed(() => (designState.inPanel ? designState.mouse.y.toFixed(1) :
 }
 
 .view-toggle__icon {
+  width: 12px;
+  height: 12px;
+}
+
+/*
+  纯图标动作位：与 view-toggle 同高，但没有标签也没有"开/关"两态 ——
+  它是个一次性动作（清除），用 toggle 的语义会让人以为是开关。
+*/
+.view-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-muted-foreground, #6b7280);
+  cursor: pointer;
+  transition:
+    color 140ms var(--ease-out, ease-out),
+    background 140ms var(--ease-out, ease-out);
+}
+
+.view-action:hover {
+  color: #dc2626;
+  background: color-mix(in oklab, #dc2626 12%, transparent);
+}
+
+.view-action:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+.view-action__icon {
   width: 12px;
   height: 12px;
 }

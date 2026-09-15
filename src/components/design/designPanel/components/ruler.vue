@@ -1,10 +1,15 @@
 <template>
-  <canvas ref="canvasRef" :class="orientation"></canvas>
+  <canvas
+    ref="canvasRef"
+    :class="['ruler', orientation]"
+    @pointerdown="onPointerDown"
+  ></canvas>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import { mmToPx } from "@/lib/utils";
+import { useDrag } from "../composables/useDrag";
 
 const props = defineProps<{
   orientation: "vertical" | "horizontal";
@@ -14,9 +19,68 @@ const props = defineProps<{
   origin?: number; /** 0mm 在尺条上的 px 位置（标尺原点偏移，相对尺条起点） */
 }>();
 
+/**
+ * 拖出辅助线的两个事件：
+ * - preview：拖拽过程中的实时位置（mm，相对纸张原点），松手或取消时传 null
+ * - create：松手落定，parent 据此真正写入 store
+ *
+ * 换算成 mm 是本组件的职责 —— 只有它知道自己的 origin 与 pxPerMm；
+ * 而"这个位置合不合法"（是否超出纸张）交给 parent 判断，那里才有纸张尺寸。
+ */
+const emit = defineEmits<{
+  (e: "guide-preview", pos: number | null): void;
+  (e: "guide-create"): void;
+}>();
+
 const canvasRef = useTemplateRef("canvasRef");
 let resizeObserver: ResizeObserver | undefined;
 const horizontal = computed(() => props.orientation === "horizontal");
+
+/** 缩放 → 每 mm 对应的屏幕 px。draw() 与拖拽换算共用同一个值 */
+const pxPerMm = computed(() => mmToPx(1) * Math.max(0.01, props.paperScale ?? 1));
+
+/** 低于这个位移不算拖拽，只是点击 —— 避免手抖凭空多出一条辅助线 */
+const DRAG_THRESHOLD_PX = 2;
+let dragging = false;
+let draftMm = 0;
+
+/** 屏幕 px（沿测量轴，相对尺条起点）→ 纸张 mm。可能超出纸张范围，由 parent 钳制 */
+function toMm(alongPx: number) {
+  return (alongPx - (props.origin ?? 0)) / pxPerMm.value;
+}
+
+const drag = useDrag({
+  onMove: (e, dx, dy) => {
+    const canvas = canvasRef.value;
+    if (!canvas) return;
+    if (!dragging) {
+      // 阈值前置：没过阈值就完全不开始，避免"点一下标尺"也 emit 出一帧预览
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      dragging = true;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const along = horizontal.value ? e.clientX - rect.left : e.clientY - rect.top;
+    draftMm = toMm(along);
+    emit("guide-preview", draftMm);
+  },
+  onEnd: () => {
+    if (dragging) {
+      emit("guide-create");
+      emit("guide-preview", null);
+    }
+    dragging = false;
+  }
+});
+
+function onPointerDown(e: PointerEvent) {
+  // 阻止原生文本选择/拖拽，否则和自绘 canvas 的拖拽打架
+  e.preventDefault();
+  e.stopPropagation();
+  dragging = false;
+  drag.start(e);
+}
+
+onUnmounted(drag.dispose);
 
 const draw = () => {
   const canvas = canvasRef.value;
@@ -46,15 +110,13 @@ const draw = () => {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, horizontal.value ? length : thickness, horizontal.value ? thickness : length);
 
-  // 缩放 → 每 mm 对应的屏幕 px
-  const scale = Math.max(0.01, props.paperScale ?? 1);
-  const pxPerMm = mmToPx(1) * scale;
+  const stepPx = pxPerMm.value; // 每 mm 对应的屏幕 px
   const origin = props.origin ?? 0; // 0mm 在尺条上的 px 位置
 
   // 自适应步长（mm）：放大刻度变密、缩小变疏
   const STEPS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
   const minorMinPx = 3; // 最小刻度间距（px）
-  const minor = STEPS.find((s) => s * pxPerMm >= minorMinPx) ?? STEPS[STEPS.length - 1];
+  const minor = STEPS.find((s) => s * stepPx >= minorMinPx) ?? STEPS[STEPS.length - 1];
   const medium = minor * 5; // 中刻度
   const major = minor * 10; // 长刻度 + mm 数字
 
@@ -62,10 +124,10 @@ const draw = () => {
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
 
-  const firstMm = Math.ceil(-origin / pxPerMm / minor) * minor; // 首个可见刻度（可能为负）
-  const lastMm = Math.floor((length - origin) / pxPerMm / minor) * minor;
-  for (let mm = firstMm; mm <= lastMm; mm += minor) {
-    const pos = Math.round(origin + mm * pxPerMm) + 0.5; // 0.5 保证 1px 线条清晰
+  const firstMm = Math.ceil(-origin / stepPx / minor) * minor; // 首个可见刻度（可能为负）
+  const lastTick = Math.floor((length - origin) / stepPx / minor) * minor;
+  for (let mm = firstMm; mm <= lastTick; mm += minor) {
+    const pos = Math.round(origin + mm * stepPx) + 0.5; // 0.5 保证 1px 线条清晰
     const isMajor = mm % major === 0;
     const isMedium = mm % medium === 0;
     const len = isMajor ? 12 : isMedium ? 8 : 4;
@@ -130,8 +192,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/*
+  canvas 既是刻度画板，也是拖出辅助线的把手：
+  - touch-action: none 阻止触控板/触屏滚动抢占 pointer 手势；
+  - user-select: none 阻止拖出时把标尺区域刷蓝。
+  光标方向表示"能往哪个方向拖"：顶部水平尺沿 X 拖 → ew-resize，
+  左侧垂直尺沿 Y 拖 → ns-resize。**拖出的线本身垂直于拖拽方向**，别混淆。
+*/
 canvas {
   display: block;
+  touch-action: none;
+  user-select: none;
 
   --ruler-bg: #f8f9fc;
   --ruler-tick: #c1c7cd;
@@ -139,5 +210,13 @@ canvas {
   --ruler-label: #5f6368;
   --ruler-guide: #2c08df;
   --ruler-font-size: 9px;
+}
+
+.ruler.horizontal {
+  cursor: ew-resize;
+}
+
+.ruler.vertical {
+  cursor: ns-resize;
 }
 </style>

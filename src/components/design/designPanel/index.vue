@@ -6,14 +6,10 @@
     @mouseleave="onMouseLeave"
     @pointerdown="deselect"
   >
-    <Ruler
-      class="absolute top-5.5 left-0"
-      orientation="vertical"
-      :viewport-px="rulerGeom.viewH"
-      :paper-scale="designState.scale"
-      :origin="originY"
-      :guide="guideY"
-    />
+    <!--
+      顶部水平尺拖出竖线（位置是 x），左侧垂直尺拖出横线（位置是 y）。
+      方向和拖出它的标尺是**交叉**的 —— 别在这里绕错。
+    -->
     <Ruler
       class="absolute top-0 left-5.5"
       orientation="horizontal"
@@ -21,6 +17,18 @@
       :paper-scale="designState.scale"
       :origin="originX"
       :guide="guideX"
+      @guide-preview="onGuidePreview('v', $event)"
+      @guide-create="commitDraft"
+    />
+    <Ruler
+      class="absolute top-5.5 left-0"
+      orientation="vertical"
+      :viewport-px="rulerGeom.viewH"
+      :paper-scale="designState.scale"
+      :origin="originY"
+      :guide="guideY"
+      @guide-preview="onGuidePreview('h', $event)"
+      @guide-create="commitDraft"
     />
     <div
       ref="scrollRef"
@@ -39,6 +47,18 @@
           <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
           <MarginGuides v-if="designState.showMarginGuides" />
         </div>
+
+        <!--
+          辅助线挂在**内容区**而非纸张内：
+          纸张容器 overflow:hidden，线一拖出纸边就被裁掉，用户看不见自己正把线往外拖。
+          挂到内容区后，线能一路画到灰色留白里，"拖出去就是删除"才看得见。
+        -->
+        <GuideLines
+          v-if="designState.showGuides"
+          :paper-x="paperX"
+          :paper-y="paperY"
+          :draft="draftGuide"
+        />
       </div>
     </div>
   </div>
@@ -51,8 +71,10 @@ import Ruler from "./components/ruler.vue";
 import ElementLayer from "./components/elements/ElementLayer.vue";
 import MarginGuides from "./components/MarginGuides.vue";
 import PaperGrid from "./components/PaperGrid.vue";
+import GuideLines from "./components/GuideLines.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
+import type { GuideDir } from "@/components/design/types";
 
 const designState = useDesignStore();
 
@@ -91,6 +113,38 @@ const originY = computed(() => paperY.value - scroll.y);
 // 引导线位置（尺条局部 px）
 const guideX = computed(() => (inPanel.value ? mouse.x - RULER_SIZE : null));
 const guideY = computed(() => (inPanel.value ? mouse.y - RULER_SIZE : null));
+
+/**
+ * 正在从标尺拖出、尚未落定的辅助线。
+ * 拖拽期间只放在这里 —— 真正写进 store 是松手那一刻的事，
+ * 免得每帧都在改文档数据。
+ */
+const draftGuide = ref<{ dir: GuideDir; pos: number } | null>(null);
+
+/** 该轴上的纸张尺寸（mm） */
+const axisSize = (dir: GuideDir) => (dir === "v" ? designState.paper.widthMm : designState.paper.heightMm);
+
+function isOutsidePaper(dir: GuideDir, pos: number) {
+  return pos < 0 || pos > axisSize(dir);
+}
+
+/**
+ * 预览位置**故意不钳制**：拖到纸外时让 GuideLines 画一条灰掉的线，
+ * 明确预示"松手会取消"；一旦拖回纸内立刻恢复常态。
+ * 这同时也是"从标尺拖回去 = 取消"的自然实现 —— 标尺带本身就落在纸张坐标之外。
+ */
+function onGuidePreview(dir: GuideDir, pos: number | null) {
+  draftGuide.value = pos == null ? null : { dir, pos };
+}
+
+function commitDraft() {
+  const d = draftGuide.value;
+  draftGuide.value = null;
+  if (d && !isOutsidePaper(d.dir, d.pos)) {
+    // 落到纸内才创建。原本就能保证不在纸外，这里再取 min/max 只是防浮点擦边。
+    designState.addGuide(d.dir, Math.round(clamp(d.pos, 0, axisSize(d.dir)) * 100) / 100);
+  }
+}
 
 function onScroll() {
   scroll.x = scrollRef.value?.scrollLeft ?? 0;
