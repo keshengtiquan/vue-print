@@ -13,7 +13,7 @@
         <TabsTrigger value="page"> 页面属性 </TabsTrigger>
       </TabsList>
       <TabsContent value="element" class="px-3 py-3"> </TabsContent>
-      <TabsContent value="page" class="page-panel px-3 pt-3">
+      <TabsContent value="page" class="px-3 pt-3">
         <PagePreviewSection />
         <Accordion type="single" collapsible>
           <AccordionItem value="item-1">
@@ -26,8 +26,18 @@
           </AccordionItem>
         </Accordion>
 
-        <div class="page-footnote">
-          <span class="page-footnote__dot"></span>
+        <!--
+          面板级"实时同步"提示，跨越整组 section。
+          发丝边框令牌 --hair 已随各 section 的转换一并消灭：
+          它等价于 1px solid currentcolor 12%，即 Tailwind 的 border border-current/12，
+          不再需要一层可继承的 CSS 变量。面板根节点因此不再承担任何样式职责。
+        -->
+        <div
+          class="text-muted-foreground mt-3.5 flex items-center gap-1.5 px-1 pt-1.5 text-[10px] tracking-[0.04em]"
+        >
+          <span
+            class="page-footnote__dot bg-primary ring-primary/22 size-1.5 rounded-full ring-3"
+          ></span>
           实时同步到画布
         </div>
       </TabsContent>
@@ -38,9 +48,9 @@
 <script setup lang="ts">
 import { ChevronsRight } from "@lucide/vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import PagePreviewSection from "./PagePreviewSection.vue";
-import PaperSizeSection from "./PaperSizeSection.vue";
-import MarginSection from "./MarginSection.vue";
+import PagePreviewSection from "./element/PagePreviewSection.vue";
+import PaperSizeSection from "./element/PaperSizeSection.vue";
+import MarginSection from "./element/MarginSection.vue";
 import {
   Accordion,
   AccordionContent,
@@ -50,32 +60,11 @@ import {
 </script>
 
 <style scoped>
-/* 发丝边框令牌：原本挂在 .page-section 上，改成 Accordion 折叠面板后失去宿主。
-   CSS 变量可继承，所以提到面板根节点定义 —— 穿透到所有子/孙组件，
-   让 margin-* / toggle-* 里的 var(--hair) 继续生效（否则边框会整片消失）。 */
-.page-panel {
-  --hair: 1px solid color-mix(in oklab, currentcolor 12%, transparent);
-}
-
-/* 本文件只保留 tabs 面板的 shell 样式；所有 section 子样式下沉到各自组件。
-   留下的只有 footnote —— 它跨越整组 section，是面板级别的"同步提示"。 */
-.page-footnote {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 14px;
-  padding: 6px 4px 0;
-  font-size: 10px;
-  color: var(--color-muted-foreground, #9ca3af);
-  letter-spacing: 0.04em;
-}
-
+/*
+  呼吸提示：footnote 的圆点是"实时同步到画布"的常驻状态指示，用极轻的脉动表明它活着。
+  keyframes 与 reduced-motion 降级都没有工具类等价物，保留在此（其余样式已转 Tailwind）。
+*/
 .page-footnote__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
   animation: page-footnote-pulse 1800ms ease-in-out infinite;
 }
 

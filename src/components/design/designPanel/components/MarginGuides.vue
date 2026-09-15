@@ -1,6 +1,14 @@
 <template>
+  <!--
+    覆盖整张纸的辅助层。三条硬约束（原 scoped 样式里的注释，改动时必须保留）：
+    - pointer-events: none —— 绝不能拦截底下元素的选中/拖动/缩放
+      （画布根节点有 @pointerdown="deselect"，一旦被拦截会导致选中失效）；
+    - z-index 远高于元素（元素 zIndex 从 0 起），参考线应始终可见；
+    - 刻意不用 primary 色：蓝在本项目代表"选中/激活"，留给元素选中框，
+      边距线是背景参考语义，用中性色退到后景。
+  -->
   <svg
-    class="margin-guides"
+    class="pointer-events-none absolute inset-0 z-9999 size-full overflow-visible"
     :viewBox="`0 0 ${paperW} ${paperH}`"
     preserveAspectRatio="none"
     aria-hidden="true"
@@ -9,12 +17,23 @@
       上 / 下 / 左 / 右 四条贯穿参考线：横线走满纸宽，竖线走满纸高。
       vector-effect="non-scaling-stroke" 让线宽与 dash 间隔都在屏幕像素空间计算，
       缩放画布时恒定 1px 细线 + 3/3 的虚线节奏。
+
+      命中态（拖拽吸附到这条线）转实线 + 主题色 + 全不透明：吸附必须"看得见"，
+      元素悄悄粘住会被误判成卡顿或掉帧。用 primary 不违背"边距线用中性色"的原则 ——
+      那条原则针对静息态，命中态语义本就是"激活/对齐"，与元素选中框同一语义色。
+
+      注意用**三元切换**而不是叠加类：Tailwind 同类工具类之间是按生成顺序决胜的，
+      同时挂 stroke-muted-foreground 与 stroke-primary 结果不可控。
     -->
     <line
       v-for="l in lines"
       :key="l.key"
-      class="margin-guides__line"
-      :class="{ 'margin-guides__line--active': activeSnapKeys.includes(l.key) }"
+      class="transition-[stroke,opacity] duration-80 ease-linear"
+      :class="
+        activeSnapKeys.includes(l.key)
+          ? 'stroke-primary opacity-100'
+          : 'stroke-muted-foreground opacity-50'
+      "
       :x1="l.x1"
       :y1="l.y1"
       :x2="l.x2"
@@ -58,43 +77,3 @@ const lines = computed<{ key: SnapKey; x1: number; y1: number; x2: number; y2: n
   ];
 });
 </script>
-
-<style scoped>
-/*
-  覆盖整张纸的辅助层：
-  - pointer-events: none 是硬要求 —— 绝不能拦截底下元素的选中/拖动/缩放
-    （画布根节点有 @pointerdown="deselect"，一旦被拦截会导致选中失效）。
-  - z-index 远高于元素（元素 zIndex 从 0 起），参考线应始终可见。
-  - 刻意不用 primary 色：蓝在本项目代表"选中/激活"，留给元素选中框；
-    边距线是背景参考语义，用中性色退到后景。
-*/
-.margin-guides {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  overflow: visible;
-}
-
-.margin-guides__line {
-  stroke: var(--color-muted-foreground, #64748b);
-  opacity: 0.5;
-  transition:
-    stroke 80ms linear,
-    opacity 80ms linear;
-}
-
-/*
-  拖拽命中时这条线转为实线 + 主题色 + 全不透明。
-  吸附必须"看得见"：元素悄悄粘住会被误判成卡顿或掉帧，
-  给一条明确的实线高亮，用户才知道这是功能不是 bug。
-  这里用 primary 不违背"边距线用中性色"的原则 —— 那条原则针对的是静息态，
-  命中态语义本就是"激活/对齐"，与元素选中框同一语义色。
-*/
-.margin-guides__line--active {
-  stroke: var(--color-primary, #1a73e8);
-  opacity: 1;
-}
-</style>

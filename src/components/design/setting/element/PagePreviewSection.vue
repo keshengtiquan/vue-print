@@ -1,10 +1,13 @@
 <template>
-  <section class="page-preview" aria-label="纸张预览">
-    <div class="page-preview__canvas">
+  <section
+    class="to-primary/4 grid grid-cols-[84px_1fr] gap-3 rounded-sm border border-current/12 bg-linear-to-b from-transparent p-3 text-current/55"
+    aria-label="纸张预览"
+  >
+    <div class="flex h-23 items-center justify-center">
       <svg
         :viewBox="`-6 -6 ${store.paper.widthMm + 12} ${store.paper.heightMm + 12}`"
         preserveAspectRatio="xMidYMid meet"
-        class="page-preview__svg"
+        class="block h-23 w-21 overflow-visible"
         role="img"
         :aria-label="`${currentPreset?.label ?? '自定义'} 纸张 ${store.paper.widthMm} × ${store.paper.heightMm} 毫米`"
       >
@@ -47,23 +50,11 @@
         >
           <path :d="cornerPath(store.marginMm.left, store.marginMm.top, 1, 1)" />
           <path
-            :d="
-              cornerPath(
-                store.paper.widthMm - store.marginMm.right,
-                store.marginMm.top,
-                -1,
-                1
-              )
-            "
+            :d="cornerPath(store.paper.widthMm - store.marginMm.right, store.marginMm.top, -1, 1)"
           />
           <path
             :d="
-              cornerPath(
-                store.marginMm.left,
-                store.paper.heightMm - store.marginMm.bottom,
-                1,
-                -1
-              )
+              cornerPath(store.marginMm.left, store.paper.heightMm - store.marginMm.bottom, 1, -1)
             "
           />
           <path
@@ -79,22 +70,25 @@
         </g>
       </svg>
     </div>
-    <dl class="page-preview__meta">
-      <dt class="page-preview__dt">规格</dt>
-      <dd class="page-preview__dd">{{ currentPreset?.label ?? "自定义" }}</dd>
-      <dt class="page-preview__dt">宽 × 高</dt>
-      <dd class="page-preview__dd page-preview__dd--mono">
+    <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.75 self-center text-[11px]">
+      <dt class="text-muted-foreground font-mono tracking-[0.04em] whitespace-nowrap">规格</dt>
+      <dd class="text-foreground m-0 font-semibold whitespace-nowrap">
+        {{ currentPreset?.label ?? "自定义" }}
+      </dd>
+      <dt class="text-muted-foreground font-mono tracking-[0.04em] whitespace-nowrap">宽 × 高</dt>
+      <dd class="text-foreground m-0 font-mono font-semibold whitespace-nowrap tabular-nums">
         {{ store.paper.widthMm }} × {{ store.paper.heightMm }}
-        <span class="page-preview__unit">mm</span>
+        <span class="text-muted-foreground ml-px text-[10px] font-normal">mm</span>
       </dd>
-      <dt class="page-preview__dt">面积</dt>
-      <dd class="page-preview__dd page-preview__dd--mono">
+      <dt class="text-muted-foreground font-mono tracking-[0.04em] whitespace-nowrap">面积</dt>
+      <dd class="text-foreground m-0 font-mono font-semibold whitespace-nowrap tabular-nums">
         {{ ((store.paper.widthMm * store.paper.heightMm) / 100).toFixed(1) }}
-        <span class="page-preview__unit">cm²</span>
+        <span class="text-muted-foreground ml-px text-[10px] font-normal">cm²</span>
       </dd>
-      <dt class="page-preview__dt">内容区</dt>
-      <dd class="page-preview__dd page-preview__dd--mono">
-        {{ contentW }} × {{ contentH }} <span class="page-preview__unit">mm</span>
+      <dt class="text-muted-foreground font-mono tracking-[0.04em] whitespace-nowrap">内容区</dt>
+      <dd class="text-foreground m-0 font-mono font-semibold whitespace-nowrap tabular-nums">
+        {{ contentW }} × {{ contentH }}
+        <span class="text-muted-foreground ml-px text-[10px] font-normal">mm</span>
       </dd>
     </dl>
   </section>
@@ -102,23 +96,17 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { usePaper } from "./composables/usePaper";
+import { usePaper } from "../composables/usePaper";
 
 /** store 由 usePaper 统一返回，避免同组件内多处调用 useDesignStore */
 const { store, currentPreset } = usePaper();
 
 /** 内容区尺寸（mm） */
 const contentW = computed(() =>
-  Math.max(
-    0,
-    +(store.paper.widthMm - store.marginMm.left - store.marginMm.right).toFixed(1)
-  )
+  Math.max(0, +(store.paper.widthMm - store.marginMm.left - store.marginMm.right).toFixed(1))
 );
 const contentH = computed(() =>
-  Math.max(
-    0,
-    +(store.paper.heightMm - store.marginMm.top - store.marginMm.bottom).toFixed(1)
-  )
+  Math.max(0, +(store.paper.heightMm - store.marginMm.top - store.marginMm.bottom).toFixed(1))
 );
 
 /**
@@ -135,71 +123,3 @@ function cornerPath(cx: number, cy: number, sx: number, sy: number) {
   return `M ${cx} ${cy + sy * l} L ${cx} ${cy} L ${cx + sx * l} ${cy}`;
 }
 </script>
-
-<style scoped>
-.page-preview {
-  --page-preview-paper: #fff;
-
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 12px;
-  padding: 12px;
-  border: var(--hair);
-  border-radius: 6px;
-  background: linear-gradient(
-    180deg,
-    transparent 0,
-    color-mix(in oklab, var(--primary) 4%, transparent) 100%
-  );
-  color: color-mix(in oklab, currentcolor 55%, transparent);
-}
-
-.page-preview__canvas {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 92px;
-}
-
-.page-preview__svg {
-  display: block;
-  height: 92px;
-  width: 84px;
-  overflow: visible;
-}
-
-.page-preview__meta {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 8px;
-  margin: 0;
-  font-size: 11px;
-  align-self: center;
-}
-
-.page-preview__dt {
-  color: var(--color-muted-foreground, #6b7280);
-  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.page-preview__dd {
-  margin: 0;
-  color: var(--color-foreground, #111);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.page-preview__dd--mono {
-  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-}
-
-.page-preview__unit {
-  color: var(--color-muted-foreground, #9ca3af);
-  font-weight: 400;
-  font-size: 10px;
-  margin-left: 1px;
-}
-</style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="border-border material-shell flex h-full w-70 flex-col border-r">
+  <div class="border-border flex h-full w-70 flex-col border-r bg-background">
     <div class="border-border flex h-12 items-center justify-between border-b">
       <div class="ml-2 flex items-center gap-2">
         <div class="bg-primary h-5 w-1.5 rounded-sm"></div>
@@ -8,21 +8,35 @@
       <ChevronsLeft class="mr-2 size-4.5 cursor-pointer" />
     </div>
 
-    <div class="material-body flex-1 overflow-auto p-3">
-      <div class="material-grid">
+    <div class="flex-1 overflow-auto p-3">
+      <!--
+        卡片样式刻意保持"静态"，转换时**没有**顺手"优化"：
+        - 不用 transform（hover 位移会让 drag image 生成时的元素带变换矩阵，Chromium 下易出问题）
+        - transition 只作用于颜色，不动 transform / opacity
+        - user-select: none —— 否则按下拖动会先选中文字，变成"拖选"而非"拖素材"
+        group/card 只用于把"父卡片 hover"传给图标，不涉及任何布局变化。
+      -->
+      <div class="grid grid-cols-2 gap-2">
         <div
           v-for="m in materials"
           :key="m.id"
-          class="material-card"
+          class="group/card flex aspect-square cursor-grab flex-col items-center justify-center gap-1.5 rounded-sm border border-border bg-muted text-foreground transition-[border-color,background-color] duration-[120ms] ease-out select-none hover:border-primary/45 hover:bg-[color-mix(in_oklab,var(--color-primary)_8%,var(--color-muted))] active:cursor-grabbing"
           draggable="true"
           :title="`拖动「${m.label}」到画布`"
           @dragstart="onDragStart($event, m)"
         >
-          <component :is="m.icon" class="material-card__icon" />
-          <span class="material-card__label">{{ m.label }}</span>
+          <component
+            :is="m.icon"
+            class="pointer-events-none size-[22px] text-muted-foreground group-hover/card:text-primary"
+          />
+          <span class="pointer-events-none text-xs leading-none text-muted-foreground">
+            {{ m.label }}
+          </span>
         </div>
       </div>
-      <p class="material-hint">拖动素材到画布即可放置</p>
+      <p class="mt-3.5 px-0.5 text-center text-[10px] leading-[1.5] tracking-[0.03em] text-muted-foreground">
+        拖动素材到画布即可放置
+      </p>
     </div>
   </div>
 </template>
@@ -48,84 +62,3 @@ function onDragStart(e: DragEvent, m: MaterialDef) {
   e.dataTransfer.setData(MATERIAL_MIME, m.id);
 }
 </script>
-
-<style scoped>
-.material-shell {
-  background: var(--color-background, #fff);
-}
-
-.material-body {
-  --mat-gap: 8px;
-}
-
-.material-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--mat-gap);
-}
-
-/*
-  卡片样式刻意保持"静态"：
-  - 不用 transform（hover 位移会让 drag image 生成时的元素带变换矩阵，Chromium 下易出问题）
-  - transition 只作用于颜色，不动 transform / opacity
-  - user-select: none —— 否则按下拖动会先选中文字，变成"拖选"而非"拖素材"
-*/
-.material-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  aspect-ratio: 1 / 1;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 6px;
-  background: var(--color-muted, #f9fafb);
-  color: var(--color-foreground, #111827);
-  cursor: grab;
-  user-select: none;
-  transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
-}
-
-.material-card:hover {
-  border-color: color-mix(in oklab, var(--primary, #1a73e8) 45%, transparent);
-  background-color: color-mix(in oklab, var(--primary, #1a73e8) 8%, var(--color-muted, #f9fafb));
-}
-
-.material-card:active {
-  cursor: grabbing;
-}
-
-/*
-  图标设 pointer-events: none：
-  svg 也会成为 drag 的命中目标，让它透传，保证 dragstart 稳定由卡片自身发起。
-*/
-.material-card__icon {
-  width: 22px;
-  height: 22px;
-  color: var(--color-muted-foreground, #6b7280);
-  pointer-events: none;
-}
-
-.material-card:hover .material-card__icon {
-  color: var(--primary, #1a73e8);
-}
-
-.material-card__label {
-  font-size: 12px;
-  line-height: 1;
-  color: var(--color-muted-foreground, #6b7280);
-  pointer-events: none;
-}
-
-.material-hint {
-  margin-top: 14px;
-  padding: 0 2px;
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--color-muted-foreground, #9ca3af);
-  letter-spacing: 0.03em;
-  text-align: center;
-}
-</style>

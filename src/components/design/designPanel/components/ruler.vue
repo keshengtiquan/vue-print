@@ -1,7 +1,8 @@
 <template>
   <canvas
     ref="canvasRef"
-    :class="['ruler', orientation]"
+    class="block touch-none select-none"
+    :class="orientation === 'vertical' ? 'cursor-ns-resize' : 'cursor-ew-resize'"
     @pointerdown="onPointerDown"
   ></canvas>
 </template>
@@ -194,29 +195,23 @@ onUnmounted(() => {
 <style scoped>
 /*
   canvas 既是刻度画板，也是拖出辅助线的把手：
-  - touch-action: none 阻止触控板/触屏滚动抢占 pointer 手势；
-  - user-select: none 阻止拖出时把标尺区域刷蓝。
+  - touch-action: none 阻止触控板/触屏滚动抢占 pointer 手势（已转为模板 touch-none）；
+  - user-select: none 阻止拖出时把标尺区域刷蓝（已转为模板 select-none）。
   光标方向表示"能往哪个方向拖"：顶部水平尺沿 X 拖 → ew-resize，
   左侧垂直尺沿 Y 拖 → ns-resize。**拖出的线本身垂直于拖拽方向**，别混淆。
+  以上三项都已转为模板上的 Tailwind 工具类，这里不再重复。
+
+  下面这组变量是**给 JS 读的绘图配置，不是样式规则**，必须留在 CSS 里：
+  draw() 用 getComputedStyle(canvas).getPropertyValue("--ruler-bg") 取值喂给 canvas 2D
+  上下文，并各自带硬编码兜底色。若改写成 Tailwind 任意属性或挪到别处，取值会落到兜底
+  分支，canvas 配色静默偏离设计值 —— 而且不报错，很难发现。**不要动这组变量。**
 */
 canvas {
-  display: block;
-  touch-action: none;
-  user-select: none;
-
   --ruler-bg: #f8f9fc;
   --ruler-tick: #c1c7cd;
   --ruler-tick-major: #5f6368;
   --ruler-label: #5f6368;
   --ruler-guide: #2c08df;
   --ruler-font-size: 9px;
-}
-
-.ruler.horizontal {
-  cursor: ew-resize;
-}
-
-.ruler.vertical {
-  cursor: ns-resize;
 }
 </style>

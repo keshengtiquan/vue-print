@@ -40,10 +40,20 @@
         class="relative min-h-full min-w-full"
         :style="{ width: `${contentW}px`, height: `${contentH}px` }"
       >
+        <!--
+          drop 目标高亮：拖素材进纸张时给一圈主题色描边 + 外发光，
+          明确"松手会落在纸上"。用 outline 不占布局，不会推动纸张内容。
+          非拖拽态与拖拽态用**三元互斥**给出完整阴影，不叠加同类工具类 ——
+          Tailwind 的 shadow / shadow-[...] 之间按生成顺序决胜，叠加结果不可控。
+        -->
         <div
           ref="paperRef"
-          class="absolute overflow-hidden bg-white shadow"
-          :class="{ 'paper-drop-target': isDragOver }"
+          class="absolute overflow-hidden bg-white"
+          :class="
+            isDragOver
+              ? 'ring-primary/14 outline-primary shadow-[0_1px_3px_rgb(0_0_0/12%)] ring-4 outline-2 -outline-offset-2'
+              : 'shadow'
+          "
           :style="{
             left: `${paperX}px`,
             top: `${paperY}px`,
@@ -320,17 +330,3 @@ const measureRuler = () => {
 onMounted(measureRuler);
 useResizeObserver(scrollRef, measureRuler);
 </script>
-
-<style scoped>
-/*
-  drop 目标高亮：拖素材进纸张时给一圈主题色描边 + 外发光，
-  明确"松手会落在纸上"。用 outline 不占布局，不会推动纸张内容。
-*/
-.paper-drop-target {
-  outline: 2px solid var(--primary, #1a73e8);
-  outline-offset: -2px;
-  box-shadow:
-    0 0 0 4px color-mix(in oklab, var(--primary, #1a73e8) 14%, transparent),
-    0 1px 3px rgb(0 0 0 / 12%);
-}
-</style>

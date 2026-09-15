@@ -1,6 +1,10 @@
 <template>
+  <!--
+    网格是**背景**参考，所以挂在元素层之下（与挂在元素之上的页边距线相反）：
+    元素盖住网格才符合"网格是纸纹"的直觉，也不会干扰内容的可读性。
+  -->
   <svg
-    class="paper-grid"
+    class="pointer-events-none absolute inset-0 size-full"
     :viewBox="`0 0 ${paperW} ${paperH}`"
     preserveAspectRatio="none"
     aria-hidden="true"
@@ -16,7 +20,7 @@
         <path
           :d="`M ${CELL} 0 L 0 0 0 ${CELL}`"
           fill="none"
-          class="paper-grid__line"
+          class="stroke-muted-foreground opacity-22"
           stroke-width="0.25"
         />
       </pattern>
@@ -37,22 +41,3 @@ const store = useDesignStore();
 const paperW = computed(() => store.paper.widthMm);
 const paperH = computed(() => store.paper.heightMm);
 </script>
-
-<style scoped>
-/*
-  网格是**背景**参考，所以挂在元素层之下（与挂在元素之上的页边距线相反）：
-  元素盖住网格才符合"网格是纸纹"的直觉，也不会干扰内容的可读性。
-*/
-.paper-grid {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.paper-grid__line {
-  stroke: var(--color-muted-foreground, #64748b);
-  opacity: 0.22;
-}
-</style>

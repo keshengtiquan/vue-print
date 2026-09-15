@@ -1,32 +1,28 @@
 <template>
-  <div ref="elRef" class="absolute" :style="wrapperStyle" @pointerdown.stop="onPointerDown">
+  <div
+    ref="elRef"
+    class="absolute touch-none select-none"
+    :style="wrapperStyle"
+    @pointerdown.stop="onPointerDown"
+  >
     <component :is="component" :element="element" />
-
-    <!-- 用 v-show + 单根 div 切换手柄显隐：
-         1. v-show 应用到 div 上才能真正 toggle display:none；
-         2. 不能用 <template v-show>，因为 <template> 元素的浏览器默认 display 永远是 none，
-            Vue 无法 toggle 它回可见，会导致 selection-box / handles 一直不可见。
-         3. 用单个 div 包住所有 overlay 子元素，避免逐个 toggle display 时的状态不一致。 -->
-    <div v-show="selected" class="selection-overlay">
-      <div class="selection-box"></div>
+    <div v-show="selected" class="pointer-events-none absolute inset-0">
+      <div class="pointer-events-none absolute inset-0 border border-dashed border-[#1a73e8]"></div>
       <div
         v-for="h in HANDLES"
         :key="h"
-        class="handle"
+        class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
         :class="handleClass[h]"
         @pointerdown.stop="onHandlePointerDown(h, $event)"
       ></div>
       <div
-        class="rotate-handle"
-        :class="{ 'rotate-handle--snapped': isSnapped }"
+        class="pointer-events-auto absolute -top-6 left-1/2 -ml-1.5 size-3 cursor-grab rounded-full border border-[#1a73e8] transition-[background,transform] duration-120 ease-out"
+        :class="isSnapped ? 'scale-125 bg-[#1a73e8]' : 'bg-white'"
         @pointerdown.stop="onRotatePointerDown"
       ></div>
-      <!-- 旋转角度徽标：只在旋转手势中出现。
-           吸附不可见就等于没做 —— 数字跳到整数（0/90/15/30…）正是"吸附住了"的反馈。
-           徽标在 wrapper 内会跟着 rotate() 一起倾斜，所以反向旋转同样角度以保持水平。 -->
       <div
         v-if="mode === 'rotate'"
-        class="rotate-badge"
+        class="pointer-events-none absolute top-1/2 left-1/2 rounded-lg bg-[#1a73e8] px-1.75 py-0.5 font-mono text-[11px] leading-normal font-semibold whitespace-nowrap text-white tabular-nums shadow-[0_1px_4px_rgb(0_0_0/25%)]"
         :style="{ transform: `translate(-50%, -50%) rotate(${-currentRotation}deg)` }"
       >
         {{ displayAngle }}°
@@ -41,7 +37,12 @@ import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
 import { elementComponents } from "./index";
 import { useDrag } from "../../composables/useDrag";
-import { useSnapFeedback, marginKey, guideKey, type SnapKey } from "../../composables/useSnapFeedback";
+import {
+  useSnapFeedback,
+  marginKey,
+  guideKey,
+  type SnapKey
+} from "../../composables/useSnapFeedback";
 import type { Element, ResizeHandle } from "@/components/design/types";
 
 const designState = useDesignStore();
@@ -74,15 +75,21 @@ const wrapperStyle = computed(() => {
 });
 
 const HANDLES: ResizeHandle[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+
+/**
+ * 8 个方向手柄的定位与光标。
+ * 尺寸（8px）、白底、蓝描边这些共性已写在模板的公共类上，这里只给"每个方向各不相同"的
+ * 部分：-4px 的贴边偏移把方块正好压在选中框线上（半个身位在外），光标指示该方向的缩放轴向。
+ */
 const handleClass: Record<ResizeHandle, string> = {
-  n: "handle-n",
-  s: "handle-s",
-  e: "handle-e",
-  w: "handle-w",
-  ne: "handle-ne",
-  nw: "handle-nw",
-  se: "handle-se",
-  sw: "handle-sw"
+  n: "-top-1 left-1/2 -ml-1 cursor-ns-resize",
+  s: "-bottom-1 left-1/2 -ml-1 cursor-ns-resize",
+  e: "top-1/2 -right-1 -mt-1 cursor-ew-resize",
+  w: "top-1/2 -left-1 -mt-1 cursor-ew-resize",
+  ne: "-top-1 -right-1 cursor-nesw-resize",
+  nw: "-top-1 -left-1 cursor-nwse-resize",
+  se: "-bottom-1 -right-1 cursor-nwse-resize",
+  sw: "-bottom-1 -left-1 cursor-nesw-resize"
 };
 
 type DragMode = "none" | "move" | "resize" | "rotate";
@@ -366,130 +373,3 @@ function applyTransientResize(dxLocal: number, dyLocal: number) {
   };
 }
 </script>
-
-<style scoped>
-.absolute {
-  touch-action: none;
-  user-select: none;
-}
-
-.selection-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.selection-box {
-  position: absolute;
-  inset: 0;
-  border: 1px dashed #1a73e8;
-  pointer-events: none;
-}
-
-.handle {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  background: #fff;
-  border: 1px solid #1a73e8;
-  pointer-events: auto;
-}
-
-.handle-n {
-  top: -4px;
-  left: 50%;
-  margin-left: -4px;
-  cursor: ns-resize;
-}
-
-.handle-s {
-  bottom: -4px;
-  left: 50%;
-  margin-left: -4px;
-  cursor: ns-resize;
-}
-
-.handle-e {
-  top: 50%;
-  right: -4px;
-  margin-top: -4px;
-  cursor: ew-resize;
-}
-
-.handle-w {
-  top: 50%;
-  left: -4px;
-  margin-top: -4px;
-  cursor: ew-resize;
-}
-
-.handle-ne {
-  top: -4px;
-  right: -4px;
-  cursor: nesw-resize;
-}
-
-.handle-nw {
-  top: -4px;
-  left: -4px;
-  cursor: nwse-resize;
-}
-
-.handle-se {
-  bottom: -4px;
-  right: -4px;
-  cursor: nwse-resize;
-}
-
-.handle-sw {
-  bottom: -4px;
-  left: -4px;
-  cursor: nesw-resize;
-}
-
-.rotate-handle {
-  position: absolute;
-  top: -24px;
-  left: 50%;
-  margin-left: -6px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  border: 1px solid #1a73e8;
-  cursor: grab;
-  pointer-events: auto;
-  transition:
-    background 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-/* 吸附时手柄实心填充并轻微放大 —— 给"卡住了"一个明确的手感反馈 */
-.rotate-handle--snapped {
-  background: #1a73e8;
-  transform: scale(1.25);
-}
-
-/*
-  旋转角度徽标：钉在元素中心，只在旋转手势中出现。
-  等宽数字 + tabular-nums，避免角度跳变时数字宽度抖动导致徽标左右晃。
-*/
-.rotate-badge {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  padding: 2px 7px;
-  border-radius: 10px;
-  background: #1a73e8;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
-}
-</style>
