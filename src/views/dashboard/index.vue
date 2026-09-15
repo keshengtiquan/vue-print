@@ -23,14 +23,14 @@
       <aside class="h-full w-57.5">
         <ul class="bg-sidebar h-full px-2 py-4">
           <li
+            v-for="item in menus"
+            :key="item.id"
             class="mb-1 h-10 cursor-pointer rounded-md px-2.5 text-left text-sm leading-10"
             :class="
               activeKey === item.id
                 ? 'bg-sidebar-primary text-sidebar-primary-foreground'
                 : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
             "
-            v-for="item in menus"
-            :key="item.id"
             >{{ item.name }}</li
           >
         </ul>
@@ -67,7 +67,8 @@
           class="grid flex-1 content-start items-start gap-4 overflow-auto px-4 pt-0 pb-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5"
         >
           <Card
-            v-for="item in reportData"
+            v-for="(item, index) in reportData"
+            :key="index"
             class="cursor-pointer gap-2 pt-0 pb-3"
             @click="() => handleClick(item)"
           >

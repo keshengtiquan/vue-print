@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import type { Element, Guide, GuideDir } from "@/components/design/types";
+import type { Element, ElementType, Guide, GuideDir } from "@/components/design/types";
 
 /** 生成局部唯一 id。仅用于画布内的临时对象（辅助线），不要求跨会话稳定 */
 let seed = 0;
@@ -43,7 +43,7 @@ export const useDesignStore = defineStore("design", {
     inPanel: false,
     /** 纸张上的素材元素 */
     elements: [
-      { id: "1", x: 0, y: 0, width: 50, height: 50, type: "text", content: "hello" }
+      // { id: "1", x: 0, y: 0, width: 50, height: 50, type: "text", content: "hello" }
       // { id: "2", x: 20, y: 20, width: 100, height: 100, type: "table", rows: 3, cols: 5 }
       // {
       //   id: "4",
@@ -80,6 +80,19 @@ export const useDesignStore = defineStore("design", {
   actions: {
     addElement(el: Element) {
       this.elements.push(el);
+    },
+
+    /**
+     * 从素材台创建元素：封装 id 生成 + 默认值填充 + 自动选中。
+     *
+     * 调用方只关心"放什么类型 + 放在哪儿"。partial 里的字段（x/y/width/content 等）生效，
+     * id 和 type 由这里保证唯一与正确，防止 partial 误覆盖。
+     */
+    createElement(type: ElementType, partial: Record<string, unknown> = {}): Element {
+      const el = { ...partial, id: nextId("el"), type } as unknown as Element;
+      this.elements.push(el);
+      this.selectedId = el.id;
+      return el;
     },
 
     removeElement(id: string) {

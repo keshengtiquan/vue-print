@@ -32,14 +32,28 @@
     />
     <div
       ref="scrollRef"
-      class="absolute top-5.5 left-5.5 right-0 bottom-0 overflow-auto"
+      class="absolute top-5.5 right-0 bottom-0 left-5.5 overflow-auto"
       @scroll="onScroll"
       @wheel="onWheel"
     >
-      <div class="relative min-w-full min-h-full" :style="{ width: `${contentW}px`, height: `${contentH}px` }">
+      <div
+        class="relative min-h-full min-w-full"
+        :style="{ width: `${contentW}px`, height: `${contentH}px` }"
+      >
         <div
+          ref="paperRef"
           class="absolute overflow-hidden bg-white shadow"
-          :style="{ left: `${paperX}px`, top: `${paperY}px`, width: `${paperW}px`, height: `${paperH}px` }"
+          :class="{ 'paper-drop-target': isDragOver }"
+          :style="{
+            left: `${paperX}px`,
+            top: `${paperY}px`,
+            width: `${paperW}px`,
+            height: `${paperH}px`
+          }"
+          @dragenter="onDragEnter"
+          @dragover="onDragOver"
+          @dragleave="onDragLeave"
+          @drop="onDrop"
         >
           <!-- 网格在元素**之下**：它是纸纹背景，被元素盖住才符合直觉 -->
           <PaperGrid v-if="designState.showGrid" />
@@ -75,6 +89,7 @@ import GuideLines from "./components/GuideLines.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
 import type { GuideDir } from "@/components/design/types";
+import { MATERIAL_MIME, findMaterial } from "@/components/design/material/materials";
 
 const designState = useDesignStore();
 
@@ -122,7 +137,8 @@ const guideY = computed(() => (inPanel.value ? mouse.y - RULER_SIZE : null));
 const draftGuide = ref<{ dir: GuideDir; pos: number } | null>(null);
 
 /** 该轴上的纸张尺寸（mm） */
-const axisSize = (dir: GuideDir) => (dir === "v" ? designState.paper.widthMm : designState.paper.heightMm);
+const axisSize = (dir: GuideDir) =>
+  dir === "v" ? designState.paper.widthMm : designState.paper.heightMm;
 
 function isOutsidePaper(dir: GuideDir, pos: number) {
   return pos < 0 || pos > axisSize(dir);
@@ -172,6 +188,71 @@ const deselect = () => {
   designState.selectedId = null;
 };
 
+/**
+ * 纸张容器 ref —— drop 时取它在视口里的真实矩形（已含滚动与缩放），
+ * 把落点 client 坐标换算成相对纸张左上角的 mm。
+ */
+const paperRef = ref<HTMLElement | null>(null);
+
+/** 素材正悬停在纸张上方（用于高亮 drop 区域） */
+const isDragOver = ref(false);
+
+function onDragEnter(e: DragEvent) {
+  e.preventDefault();
+  isDragOver.value = true;
+}
+
+/**
+ * dragover 必须 preventDefault，否则浏览器不认为这里是有效放置目标、不会派发 drop。
+ * 这里刻意**不写任何响应式状态** —— 它每帧高频触发，任何状态写入都会引发重渲染风暴。
+ */
+function onDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+}
+
+/**
+ * dragleave 会在纸张内的子元素之间穿梭时反复触发（冒泡上来的），
+ * 所以不能见 leave 就关高亮 —— 只有真正离开了纸张容器才关。
+ * relatedTarget 是刚进入的元素；拖出窗口时为 null，此时也要关。
+ */
+function onDragLeave(e: DragEvent) {
+  const next = e.relatedTarget as Node | null;
+  if (!next || !paperRef.value?.contains(next)) isDragOver.value = false;
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  isDragOver.value = false;
+  console.log(e.dataTransfer);
+
+  // 自定义 MIME 优先，text/plain 兜底；两者都不是素材 id 就忽略（比如从外部拖入的文本）
+  const data = e.dataTransfer;
+  const id = data?.getData(MATERIAL_MIME) || data?.getData("text/plain");
+  if (!id) return;
+  const m = findMaterial(id);
+  if (!m) return;
+
+  const el = paperRef.value;
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  const px = e.clientX - r.left;
+  const py = e.clientY - r.top;
+  if (px < 0 || py < 0 || px > r.width || py > r.height) return;
+
+  // rect 已含缩放与滚动，除以「每 mm 对应多少屏幕 px」即得纸张 mm 坐标
+  const mmX = px / pxPerMm.value;
+  const mmY = py / pxPerMm.value;
+  const w = m.defaults.width ?? 50;
+  const h = m.defaults.height ?? 50;
+  // 以落点为中心放置 —— Figma/PS 的直觉：放哪儿，中心就对哪儿
+  designState.createElement(m.type, {
+    ...m.defaults,
+    x: mmX - w / 2,
+    y: mmY - h / 2
+  });
+}
+
 // Ctrl/⌘+滚轮缩放（锚定光标，普通滚轮走原生滚动）
 function onWheel(e: WheelEvent) {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -179,7 +260,11 @@ function onWheel(e: WheelEvent) {
   const rect = scrollRef.value?.getBoundingClientRect();
   if (!rect) return;
   const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-  zoomAt(clamp(designState.scale * factor, SCALE_MIN, SCALE_MAX), e.clientX - rect.left, e.clientY - rect.top);
+  zoomAt(
+    clamp(designState.scale * factor, SCALE_MIN, SCALE_MAX),
+    e.clientX - rect.left,
+    e.clientY - rect.top
+  );
 }
 
 function zoomAt(next: number, ax: number, ay: number) {
@@ -190,8 +275,16 @@ function zoomAt(next: number, ax: number, ay: number) {
   const mmY = (scroll.y + ay - paperY.value) / pxPerMmOld;
   designState.scale = next; // 触发 paperX/paperW/contentW 重算
   const pxPerMmNew = mmToPx(1) * next;
-  const targetX = clamp(paperX.value + mmX * pxPerMmNew - ax, 0, Math.max(0, contentW.value - rulerGeom.viewW));
-  const targetY = clamp(paperY.value + mmY * pxPerMmNew - ay, 0, Math.max(0, contentH.value - rulerGeom.viewH));
+  const targetX = clamp(
+    paperX.value + mmX * pxPerMmNew - ax,
+    0,
+    Math.max(0, contentW.value - rulerGeom.viewW)
+  );
+  const targetY = clamp(
+    paperY.value + mmY * pxPerMmNew - ay,
+    0,
+    Math.max(0, contentH.value - rulerGeom.viewH)
+  );
   scroll.x = targetX;
   scroll.y = targetY;
   nextTick(() => {
@@ -228,4 +321,16 @@ onMounted(measureRuler);
 useResizeObserver(scrollRef, measureRuler);
 </script>
 
-<style scoped></style>
+<style scoped>
+/*
+  drop 目标高亮：拖素材进纸张时给一圈主题色描边 + 外发光，
+  明确"松手会落在纸上"。用 outline 不占布局，不会推动纸张内容。
+*/
+.paper-drop-target {
+  outline: 2px solid var(--primary, #1a73e8);
+  outline-offset: -2px;
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--primary, #1a73e8) 14%, transparent),
+    0 1px 3px rgb(0 0 0 / 12%);
+}
+</style>

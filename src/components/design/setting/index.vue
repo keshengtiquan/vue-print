@@ -12,7 +12,14 @@
         <TabsTrigger value="element"> 元素属性 </TabsTrigger>
         <TabsTrigger value="page"> 页面属性 </TabsTrigger>
       </TabsList>
-      <TabsContent value="element" class="px-3 py-3"> </TabsContent>
+      <!-- ============================================================
+           元素属性 / Element settings
+           跟着右侧「属性台」走：选中文本才出现字号。
+           字号 UI 单位是 pt，store 里存 mm（见 composables/useTextElement.ts）。
+      ============================================================ -->
+      <TabsContent value="element" class="px-3 py-3">
+        <TextSection />
+      </TabsContent>
       <!-- ============================================================
            页面属性 / Page settings
            工业仪表盘风格：等宽数字、真实比例缩略图、发丝边框、强信息密度。
@@ -46,6 +53,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PagePreviewSection from "./PagePreviewSection.vue";
 import PaperSizeSection from "./PaperSizeSection.vue";
 import MarginSection from "./MarginSection.vue";
+import TextSection from "./TextSection.vue";
 import {
   Accordion,
   AccordionContent,

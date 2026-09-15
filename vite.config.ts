@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 
 export default () => {
   return defineConfig({
+    server: {
+      port: 3500
+    },
     resolve: {
       alias: {
         "@": fileURLToPath(new URL("./src", import.meta.url))
