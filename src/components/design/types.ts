@@ -12,6 +12,8 @@ export interface BaseElement {
   height: number; // mm
   rotation?: number; // 度，绕元素中心，默认 0
   zIndex?: number; // 默认 0
+  /** 锁定后仍可选中和查看属性，但不能移动、缩放或旋转 */
+  locked?: boolean;
   /** 每页重复：多页文档里每一页都绘制该元素（页眉/页脚/流水号类）。默认 false */
   repeatOnEachPage?: boolean;
   /** 是否参与打印输出。默认 true；画布上的定位标注/备注可关掉 */

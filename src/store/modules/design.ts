@@ -1,3 +1,4 @@
+import { toRaw } from "vue";
 import { defineStore } from "pinia";
 import type { Element, ElementType, Guide, GuideDir } from "@/components/design/types";
 
@@ -69,7 +70,11 @@ export const useDesignStore = defineStore("design", {
       // }
     ] as Element[],
     /** 当前选中的元素 id */
-    selectedId: null as string | null
+    selectedId: null as string | null,
+    /** 内部剪贴板：复制/剪切后由右键菜单粘贴为一个新元素 */
+    clipboardElement: null as Element | null,
+    /** 连续粘贴时的视觉偏移，避免新元素完全盖住来源 */
+    pasteCount: 0
   }),
 
   getters: {
@@ -99,6 +104,28 @@ export const useDesignStore = defineStore("design", {
       const i = this.elements.findIndex((e) => e.id === id);
       if (i !== -1) this.elements.splice(i, 1);
       if (this.selectedId === id) this.selectedId = null;
+    },
+
+    copyElement(id: string) {
+      const el = this.getElement(id);
+      if (!el) return;
+      // Pinia 返回的是 Vue 响应式 Proxy，浏览器的 structuredClone 不能克隆 Proxy。
+      // 先解包为原始对象，才保留嵌套字段（如线条端点、表格样式）的深拷贝语义。
+      this.clipboardElement = structuredClone(toRaw(el));
+      this.pasteCount = 0;
+    },
+
+    pasteElement(): Element | undefined {
+      if (!this.clipboardElement) return;
+      const offset = 5 * (++this.pasteCount);
+      // clipboardElement 读回 Pinia state 时也会再次成为 Proxy，粘贴前同样需要解包。
+      const el = structuredClone(toRaw(this.clipboardElement)) as Element;
+      el.id = nextId("el");
+      el.x += offset;
+      el.y += offset;
+      this.elements.push(el);
+      this.selectedId = el.id;
+      return el;
     },
 
     selectElement(id: string | null) {

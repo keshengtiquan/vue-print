@@ -46,31 +46,33 @@
           非拖拽态与拖拽态用**三元互斥**给出完整阴影，不叠加同类工具类 ——
           Tailwind 的 shadow / shadow-[...] 之间按生成顺序决胜，叠加结果不可控。
         -->
-        <div
-          ref="paperRef"
-          class="absolute overflow-hidden bg-white"
-          :class="
-            isDragOver
-              ? 'ring-primary/14 outline-primary shadow-[0_1px_3px_rgb(0_0_0/12%)] ring-4 outline-2 -outline-offset-2'
-              : 'shadow'
-          "
-          :style="{
-            left: `${paperX}px`,
-            top: `${paperY}px`,
-            width: `${paperW}px`,
-            height: `${paperH}px`
-          }"
-          @dragenter="onDragEnter"
-          @dragover="onDragOver"
-          @dragleave="onDragLeave"
-          @drop="onDrop"
-        >
-          <!-- 网格在元素**之下**：它是纸纹背景，被元素盖住才符合直觉 -->
-          <PaperGrid v-if="designState.showGrid" />
-          <ElementLayer />
-          <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
-          <MarginGuides v-if="designState.showMarginGuides" />
-        </div>
+        <CanvasContextMenu>
+          <div
+            ref="paperRef"
+            class="absolute overflow-hidden bg-white"
+            :class="
+              isDragOver
+                ? 'ring-primary/14 outline-primary shadow-[0_1px_3px_rgb(0_0_0/12%)] ring-4 outline-2 -outline-offset-2'
+                : 'shadow'
+            "
+            :style="{
+              left: `${paperX}px`,
+              top: `${paperY}px`,
+              width: `${paperW}px`,
+              height: `${paperH}px`
+            }"
+            @dragenter="onDragEnter"
+            @dragover="onDragOver"
+            @dragleave="onDragLeave"
+            @drop="onDrop"
+          >
+            <!-- 网格在元素**之下**：它是纸纹背景，被元素盖住才符合直觉 -->
+            <PaperGrid v-if="designState.showGrid" />
+            <ElementLayer />
+            <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
+            <MarginGuides v-if="designState.showMarginGuides" />
+          </div>
+        </CanvasContextMenu>
 
         <!--
           辅助线挂在**内容区**而非纸张内：
@@ -96,6 +98,7 @@ import ElementLayer from "./components/elements/ElementLayer.vue";
 import MarginGuides from "./components/MarginGuides.vue";
 import PaperGrid from "./components/PaperGrid.vue";
 import GuideLines from "./components/GuideLines.vue";
+import CanvasContextMenu from "./components/CanvasContextMenu.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
 import type { GuideDir } from "@/components/design/types";
@@ -234,7 +237,6 @@ function onDragLeave(e: DragEvent) {
 function onDrop(e: DragEvent) {
   e.preventDefault();
   isDragOver.value = false;
-  console.log(e.dataTransfer);
 
   // 自定义 MIME 优先，text/plain 兜底；两者都不是素材 id 就忽略（比如从外部拖入的文本）
   const data = e.dataTransfer;

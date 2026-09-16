@@ -1,13 +1,17 @@
 <template>
-  <div
-    ref="elRef"
-    class="absolute touch-none select-none"
-    :style="wrapperStyle"
-    @pointerdown.stop="onPointerDown"
-  >
+  <ElementContextMenu :element="element">
+    <div
+      ref="elRef"
+      class="absolute touch-none select-none"
+      :class="element.locked ? 'cursor-default' : ''"
+      :style="wrapperStyle"
+      @pointerdown.stop="onPointerDown"
+      @contextmenu.stop="onContextMenu"
+    >
     <component :is="component" :element="element" />
     <div v-show="selected" class="pointer-events-none absolute inset-0">
       <div class="pointer-events-none absolute inset-0 border border-dashed border-[#1a73e8]"></div>
+      <template v-if="!element.locked">
       <div
         v-for="h in HANDLES"
         :key="h"
@@ -27,8 +31,10 @@
       >
         {{ displayAngle }}°
       </div>
+      </template>
     </div>
-  </div>
+    </div>
+  </ElementContextMenu>
 </template>
 
 <script setup lang="ts">
@@ -36,6 +42,7 @@ import { computed, onUnmounted, ref } from "vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
 import { elementComponents } from "./index";
+import ElementContextMenu from "./ElementContextMenu.vue";
 import { useDrag } from "../../composables/useDrag";
 import {
   useSnapFeedback,
@@ -309,15 +316,23 @@ function snapshot() {
 }
 
 function onPointerDown(e: PointerEvent) {
+  // 右键只负责调出菜单；锁定元素仍可被选中，但不能进入移动手势。
+  if (e.button !== 0) return;
   // 阻止浏览器原生拖拽/文本选择（text/image 元素默认可拖动/可选，与自定义拖动冲突）
   e.preventDefault();
   designState.selectElement(props.element.id);
+  if (props.element.locked) return;
   mode.value = "move";
   snapshot();
   drag.start(e);
 }
 
+function onContextMenu() {
+  designState.selectElement(props.element.id);
+}
+
 function onHandlePointerDown(h: ResizeHandle, e: PointerEvent) {
+  if (props.element.locked) return;
   e.preventDefault();
   designState.selectElement(props.element.id);
   mode.value = "resize";
@@ -327,6 +342,7 @@ function onHandlePointerDown(h: ResizeHandle, e: PointerEvent) {
 }
 
 function onRotatePointerDown(e: PointerEvent) {
+  if (props.element.locked) return;
   e.preventDefault();
   designState.selectElement(props.element.id);
   mode.value = "rotate";
