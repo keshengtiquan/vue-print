@@ -1,7 +1,8 @@
 <template>
   <PopoverRoot>
     <PopoverTrigger
-      class="border-input bg-background hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 flex h-9 w-full items-center gap-2 rounded-md border px-2 text-left outline-none focus-visible:ring-3"
+      class="border-input bg-background hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 flex h-9 w-full items-center gap-2 rounded-md border px-2 text-left outline-none focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background"
+      :disabled="disabled"
       :aria-label="modelValue ? `当前颜色 ${modelValue}` : '未设置颜色'"
     >
       <ColorSwatch
@@ -123,7 +124,7 @@ import {
   PopoverTrigger
 } from "reka-ui";
 import { computed, ref, watch } from "vue";
-const props = defineProps<{ modelValue?: string | null }>();
+const props = defineProps<{ modelValue?: string | null; disabled?: boolean }>();
 const emit = defineEmits<{ "update:modelValue": [value: string | undefined] }>();
 const PRESET_COLORS = [
   "#000000",

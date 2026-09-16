@@ -1,5 +1,20 @@
 <template>
   <div v-if="element" class="space-y-2">
+    <!-- 锁定态说明条：属性全禁用后总得有个出口，否则用户只能去画布上右键解锁 -->
+    <div
+      v-if="locked"
+      class="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs"
+    >
+      <Lock class="size-3.5 shrink-0" />
+      <span class="flex-1">元素已锁定，属性暂不可编辑</span>
+      <button
+        type="button"
+        class="flex cursor-pointer items-center gap-1 font-medium hover:underline"
+        @click="unlock"
+      >
+        <LockKeyholeOpen class="size-3.5" />解锁
+      </button>
+    </div>
     <Accordion type="multiple" :default-value="['layout', 'behavior', 'specific']">
       <AccordionItem value="layout">
         <AccordionTrigger>位置 &amp; 尺寸</AccordionTrigger>
@@ -10,6 +25,7 @@
               <NumberField
                 :model-value="element.x"
                 :step="5"
+                :disabled="locked"
                 @update:model-value="setCommon('x', $event)"
               >
                 <NumberFieldContent>
@@ -24,6 +40,7 @@
               <NumberField
                 :model-value="element.y"
                 :step="5"
+                :disabled="locked"
                 @update:model-value="setCommon('y', $event)"
               >
                 <NumberFieldContent>
@@ -39,6 +56,7 @@
                 :model-value="element.width"
                 :min="1"
                 :step="10"
+                :disabled="locked"
                 @update:model-value="setCommon('width', $event)"
               >
                 <NumberFieldContent>
@@ -54,6 +72,7 @@
                 :model-value="element.height"
                 :min="1"
                 :step="10"
+                :disabled="locked"
                 @update:model-value="setCommon('height', $event)"
               >
                 <NumberFieldContent>
@@ -89,6 +108,7 @@
                 class="min-h-18"
                 :placeholder="field.placeholder"
                 :model-value="displayValue(field)"
+                :disabled="locked"
                 @update:model-value="setField(field, String($event))"
               />
               <Select
@@ -96,7 +116,7 @@
                 :model-value="displayValue(field)"
                 @update:model-value="setField(field, String($event))"
               >
-                <SelectTrigger :id="`property-${field.key}`" class="w-full"
+                <SelectTrigger :id="`property-${field.key}`" class="w-full" :disabled="locked"
                   ><SelectValue :placeholder="field.placeholder ?? '请选择'"
                 /></SelectTrigger>
                 <SelectContent
@@ -111,6 +131,7 @@
               <ColorPicker
                 v-else-if="field.type === 'color'"
                 :model-value="displayValue(field) || undefined"
+                :disabled="locked"
                 @update:model-value="setField(field, $event ?? '')"
               />
               <NumberField
@@ -118,6 +139,7 @@
                 :model-value="Number(displayValue(field)) || field.min || 0"
                 :min="field.min"
                 :step="field.step"
+                :disabled="locked"
                 @update:model-value="setField(field, String($event))"
                 ><NumberFieldContent
                   ><NumberFieldInput :id="`property-${field.key}`" /></NumberFieldContent
@@ -127,6 +149,7 @@
                 :id="`property-${field.key}`"
                 :placeholder="field.placeholder"
                 :model-value="displayValue(field)"
+                :disabled="locked"
                 @change="setField(field, ($event.target as HTMLInputElement).value)"
               />
             </div>
@@ -146,6 +169,7 @@
               <Switch
                 class="cursor-pointer"
                 :model-value="element.repeatOnEachPage ?? false"
+                :disabled="locked"
                 @update:model-value="setCommon('repeatOnEachPage', $event)"
               />
             </div>
@@ -157,6 +181,7 @@
               <Switch
                 class="cursor-pointer"
                 :model-value="element.printable ?? true"
+                :disabled="locked"
                 @update:model-value="setCommon('printable', $event)"
               />
             </div>
@@ -177,6 +202,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { Lock, LockKeyholeOpen } from "@lucide/vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPt, mmToPx, ptToMm, pxToMm, roundPt } from "@/lib/utils";
 import {
@@ -208,6 +234,8 @@ import { ColorPicker } from "@/components/color-picker";
 
 const store = useDesignStore();
 const element = computed(() => (store.selectedId ? store.getElement(store.selectedId) : undefined));
+/** 锁定态：面板内所有属性控件统一禁用，只能从说明条或画布右键解锁 */
+const locked = computed(() => element.value?.locked ?? false);
 const propertySections = computed(() =>
   element.value ? ELEMENT_PROPERTY_CONFIG[element.value.type] : []
 );
@@ -218,6 +246,10 @@ const elementTypeLabel = computed(
 
 function setCommon(key: string, value: number | boolean) {
   if (element.value) store.updateElement(element.value.id, { [key]: value });
+}
+
+function unlock() {
+  if (element.value) store.updateElement(element.value.id, { locked: false });
 }
 
 function getByPath(target: Record<string, unknown>, path: string): unknown {

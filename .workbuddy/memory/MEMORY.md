@@ -16,6 +16,12 @@
 
 - 访问 localhost 必须加 `--noproxy '*'`，否则被系统 HTTP 代理拦截，返回 502 或连接失败（http_code=000）。
 - 起 dev server 用 `run_in_background`，但**用完立刻 TaskStop**，别攒着让用户来清。
+- 用 Windows 原生 curl 时**不要 `-o /tmp/xxx`**：它不认 Git Bash 的 `/tmp`，会静默写出 0 字节（`size_download=0` 是假象，响应头里 Content-Length 其实是正常的）。直接管道给 `grep`，或写到真实盘符路径。
+
+## 样式类改动必须回查编译产物
+
+- 本项目用 **Tailwind v4 + @tailwindcss/vite，按需生成**：类名写错或组件没被扫描到，都是**静默失效**，不报错。所以改完 class 要顺手 `curl --noproxy '*' http://localhost:<port>/src/styles/index.css`，grep 一下新类是否真的生成了（如 `border-destructive`、`bg-destructive\/10`）。只 curl `.vue` 模块只能证明编译通过，证明不了样式存在。
+- 颜色一律用主题 token（`border-destructive`、`text-primary` 等），不要硬编码 hex；画布选框本来硬编码了 `#1a73e8`，新增态用 token 混搭即可。
 
 ## 拖拽实现约定
 

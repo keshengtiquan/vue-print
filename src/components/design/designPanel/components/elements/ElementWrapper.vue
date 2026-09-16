@@ -8,31 +8,35 @@
       @pointerdown.stop="onPointerDown"
       @contextmenu.stop="onContextMenu"
     >
-    <component :is="component" :element="element" />
-    <div v-show="selected" class="pointer-events-none absolute inset-0">
-      <div class="pointer-events-none absolute inset-0 border border-dashed border-[#1a73e8]"></div>
-      <template v-if="!element.locked">
-      <div
-        v-for="h in HANDLES"
-        :key="h"
-        class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
-        :class="handleClass[h]"
-        @pointerdown.stop="onHandlePointerDown(h, $event)"
-      ></div>
-      <div
-        class="pointer-events-auto absolute -top-6 left-1/2 -ml-1.5 size-3 cursor-grab rounded-full border border-[#1a73e8] transition-[background,transform] duration-120 ease-out"
-        :class="isSnapped ? 'scale-125 bg-[#1a73e8]' : 'bg-white'"
-        @pointerdown.stop="onRotatePointerDown"
-      ></div>
-      <div
-        v-if="mode === 'rotate'"
-        class="pointer-events-none absolute top-1/2 left-1/2 rounded-lg bg-[#1a73e8] px-1.75 py-0.5 font-mono text-[11px] leading-normal font-semibold whitespace-nowrap text-white tabular-nums shadow-[0_1px_4px_rgb(0_0_0/25%)]"
-        :style="{ transform: `translate(-50%, -50%) rotate(${-currentRotation}deg)` }"
-      >
-        {{ displayAngle }}°
+      <component :is="component" :element="element" />
+      <div v-show="selected" class="pointer-events-none absolute inset-0">
+        <!-- 锁定元素用红色虚线框：一眼区分"能拖"和"拖不动"，避免误判成拖拽失效 -->
+        <div
+          class="pointer-events-none absolute inset-0 border border-dashed"
+          :class="element.locked ? 'border-destructive' : 'border-[#1a73e8]'"
+        ></div>
+        <template v-if="!element.locked">
+          <div
+            v-for="h in HANDLES"
+            :key="h"
+            class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
+            :class="handleClass[h]"
+            @pointerdown.stop="onHandlePointerDown(h, $event)"
+          ></div>
+          <div
+            class="pointer-events-auto absolute -top-6 left-1/2 -ml-1.5 size-3 cursor-grab rounded-full border border-[#1a73e8] transition-[background,transform] duration-120 ease-out"
+            :class="isSnapped ? 'scale-125 bg-[#1a73e8]' : 'bg-white'"
+            @pointerdown.stop="onRotatePointerDown"
+          ></div>
+          <div
+            v-if="mode === 'rotate'"
+            class="pointer-events-none absolute top-1/2 left-1/2 rounded-lg bg-[#1a73e8] px-1.75 py-0.5 font-mono text-[11px] leading-normal font-semibold whitespace-nowrap text-white tabular-nums shadow-[0_1px_4px_rgb(0_0_0/25%)]"
+            :style="{ transform: `translate(-50%, -50%) rotate(${-currentRotation}deg)` }"
+          >
+            {{ displayAngle }}°
+          </div>
+        </template>
       </div>
-      </template>
-    </div>
     </div>
   </ElementContextMenu>
 </template>
