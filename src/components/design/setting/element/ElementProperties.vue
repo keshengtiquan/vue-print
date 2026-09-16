@@ -3,7 +3,7 @@
     <Accordion type="multiple" :default-value="['layout', 'behavior', 'specific']">
       <AccordionItem value="layout">
         <AccordionTrigger>位置 &amp; 尺寸</AccordionTrigger>
-        <AccordionContent>
+        <AccordionContent class="px-1">
           <div class="grid grid-cols-2 gap-x-2 gap-y-2.5 pt-1">
             <div class="space-y-1.5">
               <Label for="element-x">X</Label>
@@ -70,7 +70,7 @@
 
       <AccordionItem value="specific">
         <AccordionTrigger>{{ elementTypeLabel }}属性</AccordionTrigger>
-        <AccordionContent class="space-y-4">
+        <AccordionContent class="px-1">
           <section
             v-for="section in propertySections"
             :key="section.title"
@@ -136,7 +136,7 @@
 
       <AccordionItem value="behavior">
         <AccordionTrigger>数据 &amp; 行为</AccordionTrigger>
-        <AccordionContent>
+        <AccordionContent class="px-1">
           <div class="space-y-2.5 pt-1">
             <div class="flex items-center justify-between gap-3">
               <div>
@@ -144,6 +144,7 @@
                 <p class="text-muted-foreground text-xs">在每一页都绘制此元素</p>
               </div>
               <Switch
+                class="cursor-pointer"
                 :model-value="element.repeatOnEachPage ?? false"
                 @update:model-value="setCommon('repeatOnEachPage', $event)"
               />
@@ -154,6 +155,7 @@
                 <p class="text-muted-foreground text-xs">关闭后仅在编辑画布中保留</p>
               </div>
               <Switch
+                class="cursor-pointer"
                 :model-value="element.printable ?? true"
                 @update:model-value="setCommon('printable', $event)"
               />
