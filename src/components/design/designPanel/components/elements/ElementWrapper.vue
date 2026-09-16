@@ -7,6 +7,7 @@
       :style="wrapperStyle"
       @pointerdown.stop="onPointerDown"
       @contextmenu.stop="onContextMenu"
+      @dblclick.stop="onDoubleClick"
     >
       <component :is="component" :element="element" />
       <div v-show="selected" class="pointer-events-none absolute inset-0">
@@ -15,18 +16,24 @@
           class="pointer-events-none absolute inset-0 border border-dashed"
           :class="element.locked ? 'border-destructive' : 'border-[#1a73e8]'"
         ></div>
-        <template v-if="!element.locked">
+        <!--
+          手柄条件里带上 editing：正在改文字时不该能缩放/旋转，那会一边改字一边改框，纯干扰。
+          （锁定元素本来就不渲染手柄，两者是独立的两个"别动它"的理由。）
+        -->
+        <template v-if="!element.locked && !editing">
           <div
             v-for="h in HANDLES"
             :key="h"
             class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
             :class="handleClass[h]"
             @pointerdown.stop="onHandlePointerDown(h, $event)"
+            @dblclick.stop
           ></div>
           <div
             class="pointer-events-auto absolute -top-6 left-1/2 -ml-1.5 size-3 cursor-grab rounded-full border border-[#1a73e8] transition-[background,transform] duration-120 ease-out"
             :class="isSnapped ? 'scale-125 bg-[#1a73e8]' : 'bg-white'"
             @pointerdown.stop="onRotatePointerDown"
+            @dblclick.stop
           ></div>
           <div
             v-if="mode === 'rotate'"
@@ -64,6 +71,7 @@ const props = defineProps<{ element: Element }>();
 const elRef = ref<HTMLElement | null>(null);
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
 const selected = computed(() => designState.selectedId === props.element.id);
+const editing = computed(() => designState.editingId === props.element.id);
 const component = computed(() => elementComponents[props.element.type]);
 
 // 拖动期间的 transient 状态（仅组件内可见，不写 store）：
@@ -322,6 +330,9 @@ function snapshot() {
 function onPointerDown(e: PointerEvent) {
   // 右键只负责调出菜单；锁定元素仍可被选中，但不能进入移动手势。
   if (e.button !== 0) return;
+  // 编辑中直接放行浏览器默认行为：点在字外的空白处会把 textarea 失焦，编辑态随之结束。
+  // 这里刻意**不** preventDefault —— 一旦拦掉默认行为，textarea 就不会失焦，编辑态变成关不掉的。
+  if (editing.value) return;
   // 阻止浏览器原生拖拽/文本选择（text/image 元素默认可拖动/可选，与自定义拖动冲突）
   e.preventDefault();
   designState.selectElement(props.element.id);
@@ -333,6 +344,18 @@ function onPointerDown(e: PointerEvent) {
 
 function onContextMenu() {
   designState.selectElement(props.element.id);
+}
+
+/**
+ * 双击进入内联编辑（与右键菜单的「编辑文本」同一个动作）。
+ *
+ * 双击会先派发两次 pointerdown，各自起过一个 move 手势 —— 但两下都没有位移，
+ * onEnd 提交的是与快照相同的值，等于白写一次，无需额外抑制。
+ * 缩放/旋转手柄上挂了 @dblclick.stop：它们是叠在元素之上的控件，双击它们不该进编辑态。
+ */
+function onDoubleClick() {
+  if (props.element.locked || props.element.type !== "text") return;
+  designState.startEditing(props.element.id);
 }
 
 function onHandlePointerDown(h: ResizeHandle, e: PointerEvent) {

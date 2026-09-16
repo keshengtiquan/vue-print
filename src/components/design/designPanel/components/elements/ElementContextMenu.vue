@@ -3,7 +3,11 @@
     <ContextMenuTrigger as-child>
       <slot />
     </ContextMenuTrigger>
-    <ContextMenuContent class="min-w-45" @contextmenu="selectElement">
+    <ContextMenuContent
+      class="min-w-45"
+      @contextmenu="selectElement"
+      @close-auto-focus="onCloseAutoFocus"
+    >
       <template
         v-for="item in menuItems"
         :key="item.type === 'separator' ? `separator-${itemIndex(item)}` : item.command"
@@ -25,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, type Component } from "vue";
+import { computed, ref, type Component } from "vue";
 import {
   ArrowLeftRight,
   Clipboard,
@@ -81,6 +85,8 @@ function selectElement() {
 
 function isDisabled(command: ElementMenuCommand) {
   if (command === "paste") return !store.clipboardElement;
+  // 锁定元素不给编辑内容。这里选**灰掉**而不是隐藏 —— 菜单项还在，用户能看出是"锁定"挡住的。
+  if (command === "edit-text") return !!props.element.locked;
   return false;
 }
 
@@ -89,7 +95,25 @@ function isShow(item: ElementMenuItemConfig) {
     return !props.element.locked;
   }
   if (item.command === "unlock") return props.element.locked;
+  // 正在编辑这个元素时不再显示「编辑文本」—— 重复进入没有意义。
+  if (item.command === "edit-text") return store.editingId !== props.element.id;
   return true;
+}
+
+/**
+ * 本次菜单关闭是为了进入编辑 —— 必须拦掉 reka 的焦点回填。
+ *
+ * reka 关闭菜单时会把焦点还给 trigger，而 trigger 是 ElementWrapper 那个不可聚焦的 div，
+ * 焦点于是掉到 body，会把 TextElement 刚 focus() 的 textarea 顶掉。
+ * 在 closeAutoFocus 里 preventDefault 是唯一确定有效的时机：FocusScope 正是拿
+ * defaultPrevented 来决定要不要回填的，而 emits 是同步的，我们这个处理函数一定先跑完。
+ */
+const keepFocus = ref(false);
+
+function onCloseAutoFocus(e: Event) {
+  if (!keepFocus.value) return;
+  keepFocus.value = false;
+  e.preventDefault();
 }
 
 function runCommand(command: ElementMenuCommand) {
@@ -115,7 +139,10 @@ function runCommand(command: ElementMenuCommand) {
       store.updateElement(props.element.id, { locked: false });
       break;
     case "edit-text":
-      // 元素已被选中，右侧属性面板会自动切到“元素”页，供用户直接编辑内容。
+      // 进入画布内联编辑。焦点由 TextElement 自己在 watch 里落地，
+      // 这里只负责把"别回填焦点"的信号交给 onCloseAutoFocus。
+      store.startEditing(props.element.id);
+      keepFocus.value = store.editingId === props.element.id;
       break;
     case "add-table-row":
       store.updateElement(props.element.id, {

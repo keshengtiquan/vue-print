@@ -1,11 +1,41 @@
 <template>
   <div class="h-full w-full" :style="containerStyle">
-    <div :style="textStyle">{{ element.content }}</div>
+    <!--
+      内联编辑用 textarea 而不是 contenteditable，三条理由（按重要性）：
+      1. 中文输入法。contenteditable 必须自己写 composition 锁，漏一处就是"拼音打一半被提交"；
+         textarea 的 IME 是浏览器原生行为，零代码。
+      2. 纯字符串。textarea 粘贴天然是纯文本，不需要清洗 <br>/&nbsp;。
+      3. 不跟 Vue 抢 DOM 所有权 —— 走 :value + @input，不会出现响应式和 DOM 互相覆盖。
+
+      :value 绑 draft（组件内 ref）而不是 element.content：draft 恒等于 DOM 里的值，
+      于是每次重渲染 Vue 比较后都跳过 patch，合成期间绝不会有外部写入打断输入。
+
+      @pointerdown.stop 是必须的：否则在文字里拖选会冒泡到 ElementWrapper 的 onPointerDown，
+      变成拖整个元素。
+
+      select-text 也是必须的：ElementWrapper 根节点上的 select-none 会继承下来，
+      不覆盖掉的话鼠标在 textarea 里根本选不中文字。
+    -->
+    <textarea
+      v-if="isEditing"
+      ref="editorRef"
+      rows="1"
+      spellcheck="false"
+      class="block resize-none overflow-hidden border-0 bg-transparent p-0 outline-none select-text"
+      :style="editorStyle"
+      :value="draft"
+      @input="onInput"
+      @blur="onBlur"
+      @keydown.esc="onEscape"
+      @pointerdown.stop
+      @dblclick.stop
+    ></textarea>
+    <div v-else :style="textStyle">{{ element.content }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
@@ -56,4 +86,98 @@ const textStyle = computed<CSSProperties>(() => ({
   whiteSpace: "pre-wrap",
   wordBreak: "break-word"
 }));
+
+const isEditing = computed(() => designState.editingId === props.element.id);
+
+/** 编辑期 textarea 的文本值。见模板注释：它恒等于 DOM 里的值，是"不被外部写入打断"的关键 */
+const draft = ref("");
+const editorRef = ref<HTMLTextAreaElement | null>(null);
+
+/**
+ * 横排编辑态的高度 —— 撑成内容高度，才能让外层 flex 的 justifyContent
+ * 把文字摆到和渲染态完全相同的位置（否则 textarea 内容恒从顶部排，middle/bottom 会跳）。
+ * 竖排不做 autosize（vertical-rl 下 scrollHeight 语义翻转，铺满即可），置 null。
+ */
+const editorHeight = ref<number | null>(null);
+
+/** 编辑期与渲染期的样式差异全部集中在这里 */
+const editorStyle = computed<CSSProperties>(() => ({
+  ...textStyle.value,
+  /*
+    竖排时 textStyle.width 是 undefined（让父级 alignItems 去定位），textarea 不能这样：
+    它的内在宽度来自 cols（默认 20 字宽），会撑得比元素框还宽。
+    所以编辑态一律把框给足 —— 代价是竖排文字的左右对齐在编辑期不精确，见交付说明。
+  */
+  width: "100%",
+  height:
+    props.element.layout === "vertical"
+      ? "100%"
+      : editorHeight.value == null
+        ? undefined
+        : `${editorHeight.value}px`
+}));
+
+function measureEditorHeight() {
+  if (props.element.layout === "vertical") {
+    editorHeight.value = null;
+    return;
+  }
+  const el = editorRef.value;
+  if (!el) return;
+  // 先临时塌成 auto 再量，否则当前（可能过大的）高度会把 scrollHeight 顶住，框只涨不缩。
+  // 量完必须还原成**原值**而不是置空：万一这次量出的高度和上一次相同，
+  // editorHeight 没变化 → Vue 不会重新落样式，置空就会把框永久塌成一行。
+  const prev = el.style.height;
+  el.style.height = "auto";
+  const next = el.scrollHeight;
+  el.style.height = prev;
+  editorHeight.value = next;
+}
+
+function onInput() {
+  const el = editorRef.value;
+  if (!el) return;
+  draft.value = el.value;
+  designState.updateElement(props.element.id, { content: el.value });
+  measureEditorHeight();
+}
+
+/**
+ * 失焦即退出编辑。但必须**先确认自己还是当前编辑者**：
+ * 元素被移除时浏览器会补一次 blur，若此时用户已经切到别的元素开始编辑（editingId 是新 id），
+ * 这次迟到的 blur 会把新的编辑会话一起掐掉。
+ */
+function onBlur() {
+  if (isEditing.value) designState.stopEditing();
+}
+
+/** Esc = 提交并退出，不回滚（本项目没有撤销栈，回滚等于静默丢用户输入）。 */
+function onEscape(e: KeyboardEvent) {
+  // 输入法组字期间先按下 Esc 是"取消候选字"，那一刻它属于输入法，不该顺手把编辑器也关掉。
+  if (e.isComposing) return;
+  e.stopPropagation();
+  e.preventDefault();
+  designState.stopEditing();
+}
+
+watch(isEditing, (editing) => {
+  if (!editing) return;
+  // 以 store 当前值为起点。面板的"内容"字段与这里是同一个 path，
+  // 但两者不会同时活跃 —— 点面板输入框会让画布 textarea 先失焦、编辑态先结束。
+  draft.value = props.element.content ?? "";
+  nextTick(() => {
+    const el = editorRef.value;
+    if (!el) return;
+    el.focus();
+    // 光标落末尾而不是全选：全选状态下下一笔输入会把内容整块替换掉，误删代价太大。
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+    measureEditorHeight();
+  });
+});
+
+// 缩放会让 fontSize 的 px 值变，字号一变内容高度就变 —— 编辑中缩放也要重新量。
+watch(pxPerMm, () => {
+  if (isEditing.value) nextTick(measureEditorHeight);
+});
 </script>

@@ -71,6 +71,15 @@ export const useDesignStore = defineStore("design", {
     ] as Element[],
     /** 当前选中的元素 id */
     selectedId: null as string | null,
+    /**
+     * 正在画布上做**内联编辑**的元素 id（null = 没在编辑）。
+     *
+     * 为什么进 store 而不是像 useSnapFeedback 那样做模块级单例：
+     * 那边做单例的判据是"消费方只有两个光纤组件"，而这里要跨三个目录被多处读取 ——
+     * ElementWrapper 藏手柄、TextElement 渲染编辑器、右键菜单下命令。
+     * 它同时也天然保证了"同一时刻只有一个元素在编辑"。
+     */
+    editingId: null as string | null,
     /** 内部剪贴板：复制/剪切后由右键菜单粘贴为一个新元素 */
     clipboardElement: null as Element | null,
     /** 连续粘贴时的视觉偏移，避免新元素完全盖住来源 */
@@ -104,6 +113,8 @@ export const useDesignStore = defineStore("design", {
       const i = this.elements.findIndex((e) => e.id === id);
       if (i !== -1) this.elements.splice(i, 1);
       if (this.selectedId === id) this.selectedId = null;
+      // 编辑中的元素被删掉，编辑态必须跟着走 —— 否则 editingId 会指向一个不存在的元素
+      if (this.editingId === id) this.editingId = null;
     },
 
     copyElement(id: string) {
@@ -130,6 +141,24 @@ export const useDesignStore = defineStore("design", {
 
     selectElement(id: string | null) {
       this.selectedId = id;
+      // 选中目标一换就退出内联编辑（点画布空白、点别的元素都属于"离开这次编辑"）。
+      // 这里必须放行 id === editingId 的情况：进入编辑时会先选中同一个元素。
+      if (id !== this.editingId) this.editingId = null;
+    },
+
+    /**
+     * 进入内联编辑。锁定元素不允许 —— 编辑等于改内容，而锁定的语义是"别动它"；
+     * 非文本类型没有内容可编。
+     */
+    startEditing(id: string) {
+      const el = this.getElement(id);
+      if (!el || el.locked || el.type !== "text") return;
+      this.selectedId = id;
+      this.editingId = id;
+    },
+
+    stopEditing() {
+      this.editingId = null;
     },
 
     getElement(id: string): Element | undefined {
@@ -141,6 +170,9 @@ export const useDesignStore = defineStore("design", {
       const el = this.getElement(id);
       if (!el) return;
       Object.assign(el, patch);
+      // 锁定即退出编辑。放在这里而不是菜单命令里，是为了让所有加锁路径（菜单、将来的图层面板、
+      // 快捷键）都自动满足这条约束，不用各自记得清一遍。
+      if (el.locked && this.editingId === id) this.editingId = null;
     },
 
     /** 新增一条辅助线 */

@@ -12,6 +12,22 @@
 - 交互功能如果没能真机验证，要在交付说明里**明确列出哪些链路需要用户手动点一遍**，不要含糊带过。
 - **交互类异常（尤其是拖拽）第一步先用 Chrome 无痕模式复现排除环境干扰**：本项目实测出现过"普通模式一拖就卡死、无痕模式完全正常"的情况，根因是浏览器扩展注入脚本 / 缓存，与代码无关。先排除环境，再怀疑代码 —— 否则会在错误的方向上反复返工（血泪：为此把好用的方案推翻重做了三次）。
 
+## 画布内联编辑约定
+
+- 画布上编辑文本用 **`<textarea>` 覆盖层**（老板拍板的方案，不要换回 contenteditable）。理由：中文输入法不用自己写 composition 锁、粘贴天然纯文本、不跟 Vue 抢 DOM 所有权。
+- 编辑态由 store 的 `editingId` 驱动（**放 Pinia**，不做模块级单例 —— 消费方跨三个目录）。进入 = 右键「编辑文本」或双击元素；退出 = `Esc` / 失焦 / 点画布空白 / 选别的元素 / 删除 / 锁定。`Esc` 只提交**不回滚**（本项目没有撤销栈）。
+- 三条容易踩空的实现约束：
+  1. textarea 的 `:value` 绑**组件内 draft ref**（恒等于 DOM 值 → Vue 必然跳过 patch），`@input` 里同步写 store。这样中文合成期间不会被外部写入打断。
+  2. autosize 量高度前要先临时塌成 `auto`，量完**还原原值**而不是清空 —— 高度没变时 Vue 不会重新落样式，清空会把框永久塌成一行。
+  3. 元素容器上的 `select-none` 会继承进 textarea，必须自己补 `select-text`；并给 textarea 加 `@pointerdown.stop`，否则拖选文字会变成拖元素。
+- `onBlur` 里先判断"我还是当前编辑者"再退出：元素被移除时浏览器补的那次 blur 会掐掉刚开始的下一段编辑。
+- **禁止在编辑态** preventDefault 画布的 pointerdown：拦了默认行为 textarea 就不失焦，编辑态关不掉。
+- 不要在编辑态禁用属性面板的"内容"字段：禁用控件点不着 → 画布 textarea 不失焦 → 用户要点两次才生效。两条编辑路径靠"失焦即退出"天然互斥，不需要禁用。
+
+## reka-ui 焦点回填
+
+关闭 Content 类组件（ContextMenu / Popover …）时，reka 走 FocusScope 的 unmount 钩子 → `emits("closeAutoFocus")` → 按 `defaultPrevented` 决定是否把焦点还给 trigger。trigger 不可聚焦时焦点会掉到 body，顶掉自己刚聚焦的元素。正确解法是 `@close-auto-focus` + `preventDefault()`（emits 同步，一定先于回填执行），不要在 nextTick 里延迟聚焦来赌时序。
+
 ## 本地访问 curl 的坑
 
 - 访问 localhost 必须加 `--noproxy '*'`，否则被系统 HTTP 代理拦截，返回 502 或连接失败（http_code=000）。

@@ -198,7 +198,9 @@ function onMouseLeave() {
 }
 
 const deselect = () => {
-  designState.selectedId = null;
+  // 走 action 而不是直接赋 selectedId：清选中的同时还要退掉内联编辑，
+  // 这条规则只该在 store 里写一次，漏一处就会出现"元素没选中、却还在编辑"的鬼状态。
+  designState.selectElement(null);
 };
 
 /**
