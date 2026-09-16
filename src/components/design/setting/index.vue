@@ -7,13 +7,15 @@
       </div>
       <ChevronsRight class="mr-2 size-4.5 cursor-pointer" />
     </div>
-    <Tabs default-value="page">
-      <TabsList class="w-full">
+    <Tabs v-model="activeTab" class="h-[calc(100%-3rem)] gap-0">
+      <TabsList class="w-full shrink-0">
         <TabsTrigger value="element"> 元素属性 </TabsTrigger>
         <TabsTrigger value="page"> 页面属性 </TabsTrigger>
       </TabsList>
-      <TabsContent value="element" class="px-3 py-3"> </TabsContent>
-      <TabsContent value="page" class="px-3 pt-3">
+      <TabsContent value="element" class="min-h-0 overflow-y-auto px-3 py-3">
+        <ElementProperties />
+      </TabsContent>
+      <TabsContent value="page" class="min-h-0 overflow-y-auto px-3 pt-3">
         <PagePreviewSection />
         <Accordion type="single" collapsible>
           <AccordionItem value="item-1">
@@ -26,12 +28,6 @@
           </AccordionItem>
         </Accordion>
 
-        <!--
-          面板级"实时同步"提示，跨越整组 section。
-          发丝边框令牌 --hair 已随各 section 的转换一并消灭：
-          它等价于 1px solid currentcolor 12%，即 Tailwind 的 border border-current/12，
-          不再需要一层可继承的 CSS 变量。面板根节点因此不再承担任何样式职责。
-        -->
         <div
           class="text-muted-foreground mt-3.5 flex items-center gap-1.5 px-1 pt-1.5 text-[10px] tracking-[0.04em]"
         >
@@ -47,16 +43,30 @@
 
 <script setup lang="ts">
 import { ChevronsRight } from "@lucide/vue";
+import { ref, watch } from "vue";
+import { useDesignStore } from "@/store/modules/design";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PagePreviewSection from "./element/PagePreviewSection.vue";
 import PaperSizeSection from "./element/PaperSizeSection.vue";
 import MarginSection from "./element/MarginSection.vue";
+import ElementProperties from "./element/ElementProperties.vue";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger
 } from "@/components/ui/accordion";
+
+const activeTab = ref("page");
+const designStore = useDesignStore();
+
+// 画布选中元素后主动切到属性页，用户无需再额外点一次标签。
+watch(
+  () => designStore.selectedId,
+  (selectedId) => {
+    if (selectedId) activeTab.value = "element";
+  }
+);
 </script>
 
 <style scoped>

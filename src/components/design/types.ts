@@ -26,6 +26,14 @@ export interface TextElement extends BaseElement {
   fontWeight?: string;
   color?: string;
   textAlign?: "left" | "center" | "right";
+  /** 内容在元素框内的垂直位置 */
+  verticalAlign?: "top" | "middle" | "bottom";
+  /** 文字排列方向 */
+  layout?: "horizontal" | "vertical";
+  borderStyle?: "none" | "solid" | "dashed" | "dotted";
+  borderWidth?: number; // mm
+  borderColor?: string;
+  backgroundColor?: string;
 }
 
 export interface TableElement extends BaseElement {
