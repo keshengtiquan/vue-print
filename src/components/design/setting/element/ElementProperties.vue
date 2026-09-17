@@ -141,9 +141,13 @@
                 :step="field.step"
                 :disabled="locked"
                 @update:model-value="setField(field, String($event))"
-                ><NumberFieldContent
-                  ><NumberFieldInput :id="`property-${field.key}`" /></NumberFieldContent
-              ></NumberField>
+              >
+                <NumberFieldContent>
+                  <NumberFieldDecrement class="cursor-pointer" />
+                  <NumberFieldInput :id="`property-${field.key}`" />
+                  <NumberFieldIncrement class="cursor-pointer" />
+                </NumberFieldContent>
+              </NumberField>
               <Input
                 v-else
                 :id="`property-${field.key}`"

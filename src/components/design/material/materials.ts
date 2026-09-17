@@ -1,5 +1,5 @@
 import type { Component } from "vue";
-import { Type } from "@lucide/vue";
+import { Type, LineStyle } from "@lucide/vue";
 import type { Element, ElementType } from "@/components/design/types";
 
 /**
@@ -37,8 +37,21 @@ export const materials: MaterialDef[] = [
     type: "text",
     label: "文本",
     icon: Type,
-    // 默认 60×12mm 的文本块，content 给个占位"文本"，字号 4mm
-    defaults: { width: 60, height: 12, content: "文本", fontSize: 4 }
+    defaults: { width: 50, height: 12, content: "文本", fontSize: 4 }
+  },
+  {
+    id: "mat-line",
+    type: "line",
+    label: "线",
+    icon: LineStyle,
+    defaults: {
+      width: 30,
+      height: 4,
+      start: { x: 0, y: 2 },
+      end: { x: 30, y: 2 },
+      stroke: { color: "#000", width: 0.26 },
+      dash: null
+    }
   }
 ];
 

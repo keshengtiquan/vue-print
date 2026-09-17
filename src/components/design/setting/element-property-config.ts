@@ -153,7 +153,7 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
           type: "number",
           displayUnit: "px",
           min: 0,
-          step: 0.1
+          step: 1
         },
         { key: "borderColor", label: "边框颜色", path: "borderColor", type: "color" },
         { key: "backgroundColor", label: "背景色", path: "backgroundColor", type: "color" }
@@ -194,11 +194,12 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
         { key: "strokeColor", label: "颜色", path: "stroke.color", type: "color" },
         {
           key: "strokeWidth",
-          label: "线宽",
+          label: "线宽(px)",
           path: "stroke.width",
           type: "number",
-          min: 0.1,
-          step: 0.1
+          displayUnit: "px",
+          min: 1,
+          step: 1
         },
         {
           key: "dash",
