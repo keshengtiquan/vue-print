@@ -1,5 +1,5 @@
 import type { Component } from "vue";
-import { Type, LineStyle } from "@lucide/vue";
+import { Type, LineStyle, Image, Table } from "@lucide/vue";
 import type { Element, ElementType } from "@/components/design/types";
 
 /**
@@ -52,6 +52,20 @@ export const materials: MaterialDef[] = [
       stroke: { color: "#000", width: 0.26 },
       dash: null
     }
+  },
+  {
+    id: "mat-img",
+    type: "image",
+    label: "图片",
+    icon: Image,
+    defaults: { width: 50, height: 50, objectFit: "contain" }
+  },
+  {
+    id: "mat-table",
+    type: "table",
+    label: "表格",
+    icon: Table,
+    defaults: { width: 100, height: 50, rows: 3, cols: 5 }
   }
 ];
 

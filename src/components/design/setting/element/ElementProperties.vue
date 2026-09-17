@@ -148,6 +148,16 @@
                   <NumberFieldIncrement class="cursor-pointer" />
                 </NumberFieldContent>
               </NumberField>
+              <ImageSourceField
+                v-else-if="field.type === 'image'"
+                :key="`${field.key}-${element.id}`"
+                :model-value="displayValue(field)"
+                :disabled="locked"
+                :max-size="field.maxSize"
+                :max-dimension="field.maxDimension"
+                @update:model-value="setField(field, $event)"
+                @loaded="onImageLoaded"
+              />
               <Input
                 v-else
                 :id="`property-${field.key}`"
@@ -235,6 +245,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ELEMENT_PROPERTY_CONFIG, type PropertyFieldConfig } from "../element-property-config";
 import { ColorPicker } from "@/components/color-picker";
+import ImageSourceField from "./ImageSourceField.vue";
 
 const store = useDesignStore();
 const element = computed(() => (store.selectedId ? store.getElement(store.selectedId) : undefined));
@@ -254,6 +265,29 @@ function setCommon(key: string, value: number | boolean) {
 
 function unlock() {
   if (element.value) store.updateElement(element.value.id, { locked: false });
+}
+
+/**
+ * 上传成功后按图片原始比例适配元素框：保持宽度，只重算高度。
+ *
+ * 素材默认是 50×100 的竖长框，与绝大多数图的比例都不匹配，不重算的话用户
+ * 每次上传完都要手动拖一遍。宽度不动是为了让用户"放在哪儿、多宽"的意图不被推翻。
+ *
+ * 护栏：等比算出的高度若超出纸张，就反过来按纸张高度定高 —— 否则一张长图会
+ * 直接竖着穿出纸面，用户还得先把它拖回来才能继续编辑。
+ */
+function onImageLoaded({ width, height }: { width: number; height: number }) {
+  const el = element.value;
+  if (!el || el.type !== "image" || width <= 0 || height <= 0) return;
+  const ratio = height / width;
+  let nextWidth = el.width;
+  let nextHeight = nextWidth * ratio;
+  if (nextHeight > store.paper.heightMm) {
+    nextHeight = store.paper.heightMm;
+    nextWidth = nextHeight / ratio;
+  }
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  store.updateElement(el.id, { width: round2(nextWidth), height: round2(nextHeight) });
 }
 
 function getByPath(target: Record<string, unknown>, path: string): unknown {

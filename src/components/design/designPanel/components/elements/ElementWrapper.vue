@@ -222,6 +222,36 @@ function snapAxis(pos: number, size: number, lines: SnapTarget[], tol: number) {
 }
 
 /**
+ * 缩放吸附：把**单个坐标**吸到最近的一条参考线上。
+ *
+ * 与 snapAxis 的分工必须分清 —— 两者都是"吸到线上"，但动的东西完全不同：
+ * - snapAxis（移动用）：两条边都去够线，取最近的一组，**整个框平移**；
+ * - snapEdge（缩放、端点用）：只动**这一条边**，对边由它反解尺寸，纹丝不动。
+ *
+ * 缩放的语义要求对边锁死，套用 snapAxis 会让对边跟着跑（拖 w 手柄结果右边也挪了），
+ * 所以这里是独立的函数而不是给 snapAxis 加开关 —— 语义不同的东西不该共用一个名字。
+ *
+ * @param at 活动边当前所在的坐标（mm，纸张坐标系）
+ * @param lines 该轴上的参考线
+ * @param tol 容差（mm）
+ * @returns 吸附后的坐标，以及命中的目标线 key（未命中为 null）
+ */
+function snapEdge(at: number, lines: SnapTarget[], tol: number) {
+  let best = at;
+  let hit: SnapKey | null = null;
+  let bestDist = Infinity;
+  for (const line of lines) {
+    const dist = Math.abs(line.at - at);
+    if (dist <= tol && dist < bestDist) {
+      best = line.at;
+      hit = line.key;
+      bestDist = dist;
+    }
+  }
+  return { value: best, hit };
+}
+
+/**
  * 收集某个轴上的全部吸附目标：两条页边距线 + 该轴上的所有辅助线。
  *
  * 辅助线只在 `showGuides` 打开时才参与 —— 开关关掉就是不显示也不吸附，
@@ -266,6 +296,26 @@ function snapMove(x: number, y: number, w: number, h: number, altKey: boolean) {
   if (sx.hit) hits.push(sx.hit);
   if (sy.hit) hits.push(sy.hit);
   return { x: sx.value, y: sy.value, hits };
+}
+
+/**
+ * 角度比较容差（度）。旋转吸附算出的是浮点角度（如 179.99999999999997），
+ * 不能用 === 比相等，必须给一点余量。
+ */
+const ANGLE_ALIGN_EPS = 1e-3;
+
+/**
+ * 元素当前是否与纸张轴对齐（0° / 180°）—— 只有此时它的"边"才与参考线平行，缩放吸附才有几何意义。
+ *
+ * 90° / 270° 视觉框宽高互换（局部 x 对应纸张 y），要支持就得换轴反解，收益低、易错，暂不做。
+ * 非正交角更不必说：斜边吸到竖线上没有任何对齐含义。
+ *
+ * 读 startEl.rotation（手势起点的快照）而不是 props.element：缩放过程中角度不会变，
+ * 用快照可以确保整个手势期间判定结果稳定，不会中途因为 store 更新而翻转。
+ */
+function isPaperAxisAligned() {
+  const n = ((startEl.rotation % 360) + 360) % 360;
+  return Math.abs(n) < ANGLE_ALIGN_EPS || Math.abs(n - 180) < ANGLE_ALIGN_EPS;
 }
 
 /** 当前角度是否正吸附在整点上（用于手柄高亮，让吸附"看得见"） */
@@ -321,6 +371,8 @@ const center = { x: 0, y: 0 };
 // 不使用 Pointer Capture（window 监听已能拿到所有 pointermove，省一层状态机）。
 const drag = useDrag({
   onMove: (e, dx, dy) => {
+    // move / resize / endpoint 三条手势都会吸附，且共用同一条高亮通道（setSnapKeys）——
+    // 命中的是哪一类线由 MarginGuides / GuideLines 自己去认，这里不关心。
     if (mode.value === "move") {
       // 先按位移算出自由位置，再吸附到页边距线（Alt 临时关闭）
       const free = { x: startEl.x + dx / pxPerMm.value, y: startEl.y + dy / pxPerMm.value };
@@ -335,9 +387,9 @@ const drag = useDrag({
       const rad = (startEl.rotation * Math.PI) / 180;
       const dxLocal = (dx * Math.cos(rad) + dy * Math.sin(rad)) / pxPerMm.value;
       const dyLocal = (-dx * Math.sin(rad) + dy * Math.cos(rad)) / pxPerMm.value;
-      applyTransientResize(dxLocal, dyLocal);
+      setSnapKeys(applyTransientResize(dxLocal, dyLocal, e.altKey));
     } else if (mode.value === "endpoint") {
-      applyTransientEndpoint(dx, dy);
+      setSnapKeys(applyTransientEndpoint(dx, dy, e.altKey));
     } else if (mode.value === "rotate") {
       // 角度差归一化到 [-180, 180]，避免跨越 ±180° 时跳变
       const angle = (Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) / Math.PI;
@@ -459,8 +511,16 @@ function onRotatePointerDown(e: PointerEvent) {
   drag.start(e);
 }
 
-/** 计算 resize 在 transient 上的最终 delta，不写 store。 */
-function applyTransientResize(dxLocal: number, dyLocal: number) {
+/**
+ * 计算 resize 在 transient 上的最终 delta，不写 store。
+ *
+ * 吸附只作用于**活动边**（被拖的那条边），对边负责锁死 —— 拖 e 手柄时左边缘绝不能动，
+ * 位移全部由右边缘吸收。角落手柄（如 se）两个轴各吸各的，一条边命中不影响另一轴。
+ *
+ * @param altKey 按住 Alt 时本次手势临时不吸附（与移动的约定一致，精细排版需要它）
+ * @returns 命中的吸附线 key，交给调用方 setSnapKeys 做高亮
+ */
+function applyTransientResize(dxLocal: number, dyLocal: number, altKey: boolean) {
   const h = activeHandle.value;
   let newX = startEl.x;
   let newY = startEl.y;
@@ -476,15 +536,65 @@ function applyTransientResize(dxLocal: number, dyLocal: number) {
     newY += dyLocal;
     newH -= dyLocal;
   }
+
+  // 吸附前的自由值：吸附若与"最小尺寸"冲突，整轴要退回这里（见下方 min 分支）
+  const free = { x: newX, y: newY, w: newW, h: newH };
+  let hitX: SnapKey | null = null;
+  let hitY: SnapKey | null = null;
+
+  if (designState.snapEnabled && !altKey && isPaperAxisAligned()) {
+    const tol = MARGIN_SNAP_PX / pxPerMm.value;
+    // 每个轴至多一条活动边：handle 含 e/w 则横向活动，含 n/s 则纵向活动
+    if (h.includes("e")) {
+      const s = snapEdge(newX + newW, snapTargets("v"), tol);
+      hitX = s.hit;
+      newW = s.value - newX;
+    } else if (h.includes("w")) {
+      // 对边（右边缘）恒等于 startEl.x + startEl.width，吸附后由它反解左边缘与宽度
+      const s = snapEdge(newX, snapTargets("v"), tol);
+      hitX = s.hit;
+      newX = s.value;
+      newW = startEl.x + startEl.width - s.value;
+    }
+    if (h.includes("s")) {
+      const s = snapEdge(newY + newH, snapTargets("h"), tol);
+      hitY = s.hit;
+      newH = s.value - newY;
+    } else if (h.includes("n")) {
+      const s = snapEdge(newY, snapTargets("h"), tol);
+      hitY = s.hit;
+      newY = s.value;
+      newH = startEl.y + startEl.height - s.value;
+    }
+  }
+
   const min = 1; // mm
   if (newW < min) {
-    if (h.includes("w")) newX = startEl.x + startEl.width - min;
-    newW = min;
+    // 吸附把活动边顶过了最小尺寸 → 放弃这一轴的吸附。
+    // 硬夹成 min 会留下"吸住了却卡在 1mm"的假象，比不吸附更让人困惑。
+    if (hitX) {
+      newX = free.x;
+      newW = free.w;
+      hitX = null;
+    }
+    // 退回后仍不足最小值（自由值本身就小于 min）时，照旧夹紧兜底
+    if (newW < min) {
+      if (h.includes("w")) newX = startEl.x + startEl.width - min;
+      newW = min;
+    }
   }
   if (newH < min) {
-    if (h.includes("n")) newY = startEl.y + startEl.height - min;
-    newH = min;
+    if (hitY) {
+      newY = free.y;
+      newH = free.h;
+      hitY = null;
+    }
+    if (newH < min) {
+      if (h.includes("n")) newY = startEl.y + startEl.height - min;
+      newH = min;
+    }
   }
+
   transient.value = {
     ...transient.value,
     x: newX - startEl.x,
@@ -493,6 +603,11 @@ function applyTransientResize(dxLocal: number, dyLocal: number) {
     h: newH - startEl.height,
     line: null
   };
+
+  const hits: SnapKey[] = [];
+  if (hitX) hits.push(hitX);
+  if (hitY) hits.push(hitY);
+  return hits;
 }
 
 /**
@@ -512,11 +627,16 @@ function applyTransientResize(dxLocal: number, dyLocal: number) {
  * 仍有一个自由度是特意留的：端点身份不变 —— 拖哪个端点，哪个就继续写进 start / end，
  * 「翻转线条」那类依赖首尾语义的操作才不会错位。
  *
+ * 端点吸附这一路是**精确的、与旋转无关**：计算全程已经换到纸张 mm 空间（旋转在第 ① 步就烘焙掉了），
+ * 把端点坐标吸到参考线上，端点就真的落在线上 —— 所以这里不需要 isPaperAxisAligned 那道闸。
+ *
  * @param dx 相对 pointerdown 的屏幕位移（px）
  * @param dy 相对 pointerdown 的屏幕位移（px）
+ * @param altKey 按住 Alt 时本次手势临时不吸附
+ * @returns 命中的吸附线 key，交给调用方 setSnapKeys 做高亮
  */
-function applyTransientEndpoint(dx: number, dy: number) {
-  if (props.element.type !== "line") return;
+function applyTransientEndpoint(dx: number, dy: number, altKey: boolean) {
+  if (props.element.type !== "line") return [];
 
   // ① 元素局部坐标 → 纸张坐标（mm）：先绕框中心正旋转，再加框中心位置
   const rad = (startEl.rotation * Math.PI) / 180;
@@ -537,11 +657,23 @@ function applyTransientEndpoint(dx: number, dy: number) {
   // ② 被拖的端点在纸张空间里直接跟随指针，锚点纹丝不动
   const screenToMm = 1 / pxPerMm.value;
   const startPaper = toPaper(localMoving);
-  const moved = {
+  const anchor = toPaper(localAnchor);
+  let moved = {
     x: startPaper.x + dx * screenToMm,
     y: startPaper.y + dy * screenToMm
   };
-  const anchor = toPaper(localAnchor);
+
+  // ②.5 端点吸附：两个轴各吸各的、互不牵扯（端点是自由点，没有"对边"这回事）。
+  // 复用 snapEdge —— 端点在纸张空间里本来就是一个孤立的坐标，与缩放的活动边是同一种东西。
+  const hits: SnapKey[] = [];
+  if (designState.snapEnabled && !altKey) {
+    const tol = MARGIN_SNAP_PX / pxPerMm.value;
+    const sx = snapEdge(moved.x, snapTargets("v"), tol);
+    const sy = snapEdge(moved.y, snapTargets("h"), tol);
+    moved = { x: sx.value, y: sy.value };
+    if (sx.hit) hits.push(sx.hit);
+    if (sy.hit) hits.push(sy.hit);
+  }
 
   // ③ 包围盒 = 线段的最小外接矩形；两个方向各自兜一个最小厚度，
   //    否则水平/垂直的线会退化成 0 厚，选区看不见、也点不中。
@@ -569,5 +701,6 @@ function applyTransientEndpoint(dx: number, dy: number) {
     end: toLocal(byStart ? anchor : moved)
   };
   transient.value = { ...transient.value, line: draft };
+  return hits;
 }
 </script>

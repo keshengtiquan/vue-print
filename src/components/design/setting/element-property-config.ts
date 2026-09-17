@@ -6,7 +6,7 @@ import type { ElementType } from "@/components/design/types";
  * 新增元素类型或字段时，只需在这里补充 JSON 配置；属性面板会据此渲染并回写元素。
  * path 支持点路径，因此例如 line.stroke.color 可以直接配置。
  */
-export type PropertyFieldType = "text" | "number" | "color" | "select" | "textarea";
+export type PropertyFieldType = "text" | "number" | "color" | "select" | "textarea" | "image";
 
 export interface PropertyFieldConfig {
   key: string;
@@ -19,6 +19,10 @@ export interface PropertyFieldConfig {
   /** 面板展示单位；元素模型仍统一存储为 mm。 */
   displayUnit?: "pt" | "px";
   options?: Array<{ label: string; value: string }>;
+  /** 上传控件的文件体积上限（字节），仅 type === "image" 时生效 */
+  maxSize?: number;
+  /** 上传控件的单边像素上限，仅 type === "image" 时生效 */
+  maxDimension?: number;
 }
 
 export interface PropertySectionConfig {
@@ -217,10 +221,13 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
       fields: [
         {
           key: "src",
-          label: "图片地址",
+          label: "图片",
           path: "src",
-          type: "textarea",
-          placeholder: "请输入图片地址"
+          type: "image",
+          // 上限口径按"打印够用"定，不按网页优化定：A4 宽 210mm 要 300dpi 出图需 2480px，
+          // 4096 是给满版出血留的余量，再往下砍就会印糊。
+          maxSize: 5 * 1024 * 1024,
+          maxDimension: 4096
         },
         {
           key: "objectFit",

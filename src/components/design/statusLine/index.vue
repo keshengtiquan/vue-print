@@ -80,8 +80,8 @@
         :aria-pressed="designState.snapEnabled"
         :title="
           designState.snapEnabled
-            ? '吸附已开启：移动吸页边距线与辅助线，旋转吸正交角（按住 Alt / Shift 可临时反向）'
-            : '吸附已关闭：移动与旋转均为自由位移'
+            ? '吸附已开启：移动与缩放吸页边距线与辅助线，旋转吸正交角（旋转元素仅 0°/180° 参与缩放吸附，按住 Alt 临时关闭）'
+            : '吸附已关闭：移动、缩放与旋转均为自由位移'
         "
         @click="designState.snapEnabled = !designState.snapEnabled"
       >
