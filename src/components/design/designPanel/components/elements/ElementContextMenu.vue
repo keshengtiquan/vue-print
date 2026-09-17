@@ -52,7 +52,7 @@ import {
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
 import { useDesignStore } from "@/store/modules/design";
-import type { Element } from "@/components/design/types";
+import type { Element, LineElement } from "@/components/design/types";
 import {
   getElementContextMenuConfig,
   type ElementMenuCommand,
@@ -83,10 +83,28 @@ function selectElement() {
   store.selectElement(props.element.id);
 }
 
+/**
+ * 与坐标轴平行的线段（水平或垂直）：某一轴的跨度小到可忽略。
+ * 容差 0.01mm ≈ 0.04px，肉眼不可分辨，同时能吃掉缩放分支产生的浮点噪声。
+ */
+const AXIS_ALIGNED_EPSILON = 0.01;
+
+function isAxisAlignedLine(element: LineElement) {
+  return (
+    Math.abs(element.start.x - element.end.x) < AXIS_ALIGNED_EPSILON ||
+    Math.abs(element.start.y - element.end.y) < AXIS_ALIGNED_EPSILON
+  );
+}
+
 function isDisabled(command: ElementMenuCommand) {
   if (command === "paste") return !store.clipboardElement;
   // 锁定元素不给编辑内容。这里选**灰掉**而不是隐藏 —— 菜单项还在，用户能看出是"锁定"挡住的。
   if (command === "edit-text") return !!props.element.locked;
+  if (command === "flip-line") {
+    const el = props.element;
+    // 水平/垂直的线段绕中点镜像后与原线重合，点了看不出任何变化 —— 同样灰掉，别让用户空点一次。
+    return el.type !== "line" || isAxisAlignedLine(el);
+  }
   return false;
 }
 
@@ -154,11 +172,15 @@ function runCommand(command: ElementMenuCommand) {
         cols: props.element.type === "table" ? props.element.cols + 1 : 1
       });
       break;
-    case "reverse-line":
+    case "flip-line":
+      // 绕线段中点镜像：交换两端的 x、各自保留 y。
+      // 斜线会立刻从 "/" 翻成 "\"，且端点仍落在 [0,width]×[0,height] 内，不会跑出元素框。
+      // 对一条线段而言「水平镜像」与「垂直镜像」结果相同，所以不需要拆成两项。
       if (props.element.type === "line") {
+        const { start, end } = props.element;
         store.updateElement(props.element.id, {
-          start: { ...props.element.end },
-          end: { ...props.element.start }
+          start: { x: end.x, y: start.y },
+          end: { x: start.x, y: end.y }
         });
       }
       break;

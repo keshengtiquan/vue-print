@@ -16,7 +16,7 @@ export type ElementMenuCommand =
   | "edit-text"
   | "add-table-row"
   | "add-table-column"
-  | "reverse-line"
+  | "flip-line"
   | "reset-image-fit";
 
 export interface ElementMenuItemConfig {
@@ -50,7 +50,9 @@ export const elementMenuConfig: Record<ElementType, readonly ElementMenuConfig[]
     { command: "add-table-row", label: "增加一行", icon: "rows-3" },
     { command: "add-table-column", label: "增加一列", icon: "columns-3" }
   ],
-  line: [{ command: "reverse-line", label: "反转线条方向", icon: "arrow-left-right" }],
+  // 「翻转」= 绕线段中点做镜像（交换两端的 x、保留各自 y）。水平/垂直的线镜像后与自身重合，
+  // 因此那种情况会被禁用 —— 详见 ElementContextMenu 的 isDisabled。
+  line: [{ command: "flip-line", label: "翻转线条", icon: "arrow-left-right" }],
   image: [{ command: "reset-image-fit", label: "重置图片适配", icon: "maximize" }]
 };
 

@@ -21,14 +21,31 @@
           （锁定元素本来就不渲染手柄，两者是独立的两个"别动它"的理由。）
         -->
         <template v-if="!element.locked && !editing">
-          <div
-            v-for="h in HANDLES"
-            :key="h"
-            class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
-            :class="handleClass[h]"
-            @pointerdown.stop="onHandlePointerDown(h, $event)"
-            @dblclick.stop
-          ></div>
+          <!--
+            线条用两个端点手柄**替代** 8 个缩放手柄：
+            端点必然落在包围盒的角（斜线）或边中点（水平/垂直线）上，位置与缩放手柄必然重合，
+            两者只能留一个。端点手柄的表达力也更强 —— 直接决定线的走向和长度。
+          -->
+          <template v-if="element.type === 'line'">
+            <div
+              v-for="pt in lineEndpoints"
+              :key="pt.key"
+              class="pointer-events-auto absolute size-2.5 cursor-crosshair rounded-full border-2 border-white bg-[#1a73e8]"
+              :style="{ left: `${pt.x}px`, top: `${pt.y}px`, transform: 'translate(-50%, -50%)' }"
+              @pointerdown.stop="onEndpointPointerDown(pt.key, $event)"
+              @dblclick.stop
+            ></div>
+          </template>
+          <template v-else>
+            <div
+              v-for="h in HANDLES"
+              :key="h"
+              class="pointer-events-auto absolute size-2 border border-[#1a73e8] bg-white"
+              :class="handleClass[h]"
+              @pointerdown.stop="onHandlePointerDown(h, $event)"
+              @dblclick.stop
+            ></div>
+          </template>
           <div
             class="pointer-events-auto absolute -top-6 left-1/2 -ml-1.5 size-3 cursor-grab rounded-full border border-[#1a73e8] transition-[background,transform] duration-120 ease-out"
             :class="isSnapped ? 'scale-125 bg-[#1a73e8]' : 'bg-white'"
@@ -74,24 +91,70 @@ const selected = computed(() => designState.selectedId === props.element.id);
 const editing = computed(() => designState.editingId === props.element.id);
 const component = computed(() => elementComponents[props.element.type]);
 
+/**
+ * 端点拖拽期间的完整几何草稿（mm，绝对值）。
+ *
+ * 这一路没法用「快照 + delta」表达：端点是元素框内的局部坐标，而拖端点会**同时重算框**
+ * （框始终紧贴线段的包围盒），框一变所有局部坐标都变，增量会互相纠缠。
+ * 所以直接存一组最终值，wrapperStyle 与端点手柄都读它。
+ *
+ * rotation 恒为 0：拖端点会把元素已有的旋转**烘焙**进端点坐标（见 applyTransientEndpoint），
+ * 因为框中心就是旋转支点，而重算包围盒必然移动框中心 —— 不烘焙的话，没被拖的那一端会跟着漂走。
+ */
+interface LineDraft {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+}
+
 // 拖动期间的 transient 状态（仅组件内可见，不写 store）：
 // - 高频 pointermove 时只更新这里，**不污染** store 的响应式图，其他组件/watcher 不触发。
 // - wrapperStyle computed 同时依赖 props.element 和 transient，只这一个组件的样式重算。
 // - pointerup 时一次性 commit 到 store 并清零 transient。
-const transient = ref({ x: 0, y: 0, w: 0, h: 0, rot: 0 });
+const transient = ref({ x: 0, y: 0, w: 0, h: 0, rot: 0, line: null as LineDraft | null });
 
 const wrapperStyle = computed(() => {
   const t = transient.value;
+  // 端点拖拽期间框由草稿整体接管（重算包围盒），其余手势仍只用 delta 叠加。
+  const box = t.line ?? {
+    x: props.element.x + t.x,
+    y: props.element.y + t.y,
+    width: props.element.width + t.w,
+    height: props.element.height + t.h
+  };
   return {
-    left: `${(props.element.x + t.x) * pxPerMm.value}px`,
-    top: `${(props.element.y + t.y) * pxPerMm.value}px`,
-    width: `${(props.element.width + t.w) * pxPerMm.value}px`,
-    height: `${(props.element.height + t.h) * pxPerMm.value}px`,
-    transform: `rotate(${(props.element.rotation ?? 0) + t.rot}deg)`,
+    left: `${box.x * pxPerMm.value}px`,
+    top: `${box.y * pxPerMm.value}px`,
+    width: `${box.width * pxPerMm.value}px`,
+    height: `${box.height * pxPerMm.value}px`,
+    transform: `rotate(${t.line ? t.line.rotation : (props.element.rotation ?? 0) + t.rot}deg)`,
     transformOrigin: "center",
     zIndex: props.element.zIndex ?? 0
   };
 });
+
+/**
+ * 两个端点手柄在元素框内的位置（px，相对框左上角）。
+ * 拖动中读草稿值，保证手柄与指针严丝合缝；静止时读元素值。
+ */
+const lineEndpoints = computed(() => {
+  const el = props.element;
+  if (el.type !== "line") return [];
+  const draft = transient.value.line;
+  const start = draft ? draft.start : el.start;
+  const end = draft ? draft.end : el.end;
+  return [
+    { key: "start" as const, x: start.x * pxPerMm.value, y: start.y * pxPerMm.value },
+    { key: "end" as const, x: end.x * pxPerMm.value, y: end.y * pxPerMm.value }
+  ];
+});
+
+/** 端点拖拽时元素框的最小厚度（mm）：水平/垂直的线包围盒会退化成 0 厚，既看不见选区也点不中 */
+const ENDPOINT_MIN_THICKNESS = 4;
 
 const HANDLES: ResizeHandle[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
@@ -111,9 +174,11 @@ const handleClass: Record<ResizeHandle, string> = {
   sw: "-bottom-1 -left-1 cursor-nesw-resize"
 };
 
-type DragMode = "none" | "move" | "resize" | "rotate";
+type DragMode = "none" | "move" | "resize" | "rotate" | "endpoint";
 const mode = ref<DragMode>("none");
 const activeHandle = ref<ResizeHandle>("se");
+/** 当前正在拖的线段端点（仅 mode === "endpoint" 时有意义） */
+const activeEndpoint = ref<"start" | "end">("start");
 
 /** 按住 Shift 时的吸附步长（度）—— 与 Figma / PS / Sketch 的行业标准一致 */
 const ROTATE_SNAP_STEP = 15;
@@ -271,6 +336,8 @@ const drag = useDrag({
       const dxLocal = (dx * Math.cos(rad) + dy * Math.sin(rad)) / pxPerMm.value;
       const dyLocal = (-dx * Math.sin(rad) + dy * Math.cos(rad)) / pxPerMm.value;
       applyTransientResize(dxLocal, dyLocal);
+    } else if (mode.value === "endpoint") {
+      applyTransientEndpoint(dx, dy);
     } else if (mode.value === "rotate") {
       // 角度差归一化到 [-180, 180]，避免跨越 ±180° 时跳变
       const angle = (Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) / Math.PI;
@@ -284,30 +351,25 @@ const drag = useDrag({
     }
   },
   onEnd: () => {
-    // 把 transient 累积的 delta 一次性 commit 到 store。
-    // 注意：line 元素的 start/end 按最终 width/height 比例缩放写入（拖动期间不实时缩放，
-    // 视觉上 line 端点位置不变，是已知 trade-off）。
-    if (mode.value !== "none") {
+    if (mode.value === "endpoint") {
+      // 端点草稿本身就是最终值（框与 start/end 一起算好的），整组写回即可。
+      const draft = transient.value.line;
+      if (draft) designState.updateElement(props.element.id, { ...draft });
+    } else if (mode.value !== "none") {
+      // 把 transient 累积的 delta 一次性 commit 到 store。
+      // 这里不再有 line 的特例：线条走上面的 endpoint 分支，它的框由端点手柄维护，
+      // 缩放手柄对线条不渲染（位置必然与端点手柄重合），所以不必再按比例换算 start/end。
       const t = transient.value;
-      const finalW = startEl.width + t.w;
-      const finalH = startEl.height + t.h;
-      const patch: Record<string, unknown> = {
+      designState.updateElement(props.element.id, {
         x: startEl.x + t.x,
         y: startEl.y + t.y,
-        width: finalW,
-        height: finalH,
+        width: startEl.width + t.w,
+        height: startEl.height + t.h,
         rotation: startEl.rotation + t.rot
-      };
-      if (props.element.type === "line") {
-        const sx = startEl.width ? finalW / startEl.width : 1;
-        const sy = startEl.height ? finalH / startEl.height : 1;
-        patch.start = { x: startEl.start.x * sx, y: startEl.start.y * sy };
-        patch.end = { x: startEl.end.x * sx, y: startEl.end.y * sy };
-      }
-      designState.updateElement(props.element.id, patch);
+      });
     }
     // 清零 transient，wrapperStyle 立刻回退到 props.element 当前值（已 commit 过）
-    transient.value = { x: 0, y: 0, w: 0, h: 0, rot: 0 };
+    transient.value = { x: 0, y: 0, w: 0, h: 0, rot: 0, line: null };
     mode.value = "none";
     isSnapped.value = false;
     clearSnapKeys();
@@ -368,6 +430,22 @@ function onHandlePointerDown(h: ResizeHandle, e: PointerEvent) {
   drag.start(e);
 }
 
+/**
+ * 端点手柄按下：进入端点手势。
+ * 礼节与缩放手柄完全一致（preventDefault + 选中 + 快照），只是 mode 不同。
+ */
+function onEndpointPointerDown(which: "start" | "end", e: PointerEvent) {
+  if (props.element.type !== "line" || props.element.locked) return;
+  // 右键只负责调出菜单，不该顺手起一个拖拽手势
+  if (e.button !== 0) return;
+  e.preventDefault();
+  designState.selectElement(props.element.id);
+  mode.value = "endpoint";
+  activeEndpoint.value = which;
+  snapshot();
+  drag.start(e);
+}
+
 function onRotatePointerDown(e: PointerEvent) {
   if (props.element.locked) return;
   e.preventDefault();
@@ -408,11 +486,88 @@ function applyTransientResize(dxLocal: number, dyLocal: number) {
     newH = min;
   }
   transient.value = {
+    ...transient.value,
     x: newX - startEl.x,
     y: newY - startEl.y,
     w: newW - startEl.width,
     h: newH - startEl.height,
-    rot: transient.value.rot
+    line: null
   };
+}
+
+/**
+ * 计算端点拖拽的 transient 草稿，不写 store。
+ *
+ * ## 为什么先把端点换算到「纸张坐标」
+ *
+ * 端点存在元素框的局部坐标里，而框中心就是 transform-origin（旋转支点）。
+ * 拖端点必须重算包围盒，包围盒一变框中心就变 —— 支点跟着动，而「屏幕位移 → 局部位移」
+ * 这一步隐含了「支点不动」的假设，于是没被拖的那一端会诡异地漂走。
+ *
+ * 所以这里把元素自身的旋转先**烘焙**进两个端点的坐标（换算到纸张 mm 空间），
+ * 之后全部计算都在轴对齐空间里做：位移直接叠加、包围盒直接求 min/max，支点再不参与。
+ * 代价是 rotation 归零 —— 但线段的视觉位置分毫不动（是连续的），且框重新变回轴对齐，
+ * 「框永远是紧贴线段的轴对齐包围盒」这条不变量得以保持，缩放分支的等比换算才不会错。
+ *
+ * 仍有一个自由度是特意留的：端点身份不变 —— 拖哪个端点，哪个就继续写进 start / end，
+ * 「翻转线条」那类依赖首尾语义的操作才不会错位。
+ *
+ * @param dx 相对 pointerdown 的屏幕位移（px）
+ * @param dy 相对 pointerdown 的屏幕位移（px）
+ */
+function applyTransientEndpoint(dx: number, dy: number) {
+  if (props.element.type !== "line") return;
+
+  // ① 元素局部坐标 → 纸张坐标（mm）：先绕框中心正旋转，再加框中心位置
+  const rad = (startEl.rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const centerX = startEl.x + startEl.width / 2;
+  const centerY = startEl.y + startEl.height / 2;
+  const toPaper = (p: { x: number; y: number }) => {
+    const ox = p.x - startEl.width / 2;
+    const oy = p.y - startEl.height / 2;
+    return { x: ox * cos - oy * sin + centerX, y: ox * sin + oy * cos + centerY };
+  };
+
+  const byStart = activeEndpoint.value === "start";
+  const localMoving = byStart ? startEl.start : startEl.end;
+  const localAnchor = byStart ? startEl.end : startEl.start;
+
+  // ② 被拖的端点在纸张空间里直接跟随指针，锚点纹丝不动
+  const screenToMm = 1 / pxPerMm.value;
+  const startPaper = toPaper(localMoving);
+  const moved = {
+    x: startPaper.x + dx * screenToMm,
+    y: startPaper.y + dy * screenToMm
+  };
+  const anchor = toPaper(localAnchor);
+
+  // ③ 包围盒 = 线段的最小外接矩形；两个方向各自兜一个最小厚度，
+  //    否则水平/垂直的线会退化成 0 厚，选区看不见、也点不中。
+  let left = Math.min(moved.x, anchor.x);
+  let top = Math.min(moved.y, anchor.y);
+  let width = Math.abs(moved.x - anchor.x);
+  let height = Math.abs(moved.y - anchor.y);
+  if (width < ENDPOINT_MIN_THICKNESS) {
+    left -= (ENDPOINT_MIN_THICKNESS - width) / 2;
+    width = ENDPOINT_MIN_THICKNESS;
+  }
+  if (height < ENDPOINT_MIN_THICKNESS) {
+    top -= (ENDPOINT_MIN_THICKNESS - height) / 2;
+    height = ENDPOINT_MIN_THICKNESS;
+  }
+
+  const toLocal = (pt: { x: number; y: number }) => ({ x: pt.x - left, y: pt.y - top });
+  const draft: LineDraft = {
+    x: left,
+    y: top,
+    width,
+    height,
+    rotation: 0,
+    start: toLocal(byStart ? moved : anchor),
+    end: toLocal(byStart ? anchor : moved)
+  };
+  transient.value = { ...transient.value, line: draft };
 }
 </script>
