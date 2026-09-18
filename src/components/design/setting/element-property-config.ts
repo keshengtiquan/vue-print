@@ -166,14 +166,19 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
   ],
   table: [
     {
-      title: "表格设置",
+      /*
+        这里刻意**没有**"行数 / 列数"输入框。
+        新模型下 rows/cols 是派生值（以 rowHeights/colWidths 的长度为准），
+        直接改数字会让 cells 数组与网格尺寸脱节 —— 而增删行列是结构化操作，
+        得同时维护合并格、行角色、选区等一串东西，不是一句 Object.assign 能表达的。
+        入口统一收在"进入表格编辑态"之后的右键菜单 / 行列表头里。
+      */
+      title: "表格默认样式",
       fields: [
-        { key: "rows", label: "行数", path: "rows", type: "number", min: 1, step: 1 },
-        { key: "cols", label: "列数", path: "cols", type: "number", min: 1, step: 1 },
-        { key: "borderColor", label: "边框颜色", path: "cellStyle.borderColor", type: "color" },
+        { key: "borderColor", label: "默认边框颜色", path: "cellStyle.borderColor", type: "color" },
         {
           key: "borderWidth",
-          label: "边框宽度（px）",
+          label: "默认边框宽度（px）",
           path: "cellStyle.borderWidth",
           type: "number",
           displayUnit: "px",
@@ -182,7 +187,7 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
         },
         {
           key: "padding",
-          label: "单元格内边距",
+          label: "默认单元格内边距",
           path: "cellStyle.padding",
           type: "number",
           min: 0,

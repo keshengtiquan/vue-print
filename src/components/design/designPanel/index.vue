@@ -4,7 +4,7 @@
     class="relative overflow-hidden bg-gray-50"
     @mousemove="onMouseMove"
     @mouseleave="onMouseLeave"
-    @pointerdown="deselect"
+    @pointerdown="onRootPointerDown"
   >
     <!--
       顶部水平尺拖出竖线（位置是 x），左侧垂直尺拖出横线（位置是 y）。
@@ -202,6 +202,21 @@ const deselect = () => {
   // 这条规则只该在 store 里写一次，漏一处就会出现"元素没选中、却还在编辑"的鬼状态。
   designState.selectElement(null);
 };
+
+/**
+ * 画布根的 pointerdown：点在空白处才取消选中。
+ *
+ * 判断落点而不是让元素自己 stopPropagation，是这个函数的全部意义所在：
+ * 元素侧拦冒泡虽然也能保住选中，但会顺带切断 document 上的监听 ——
+ * reka 的菜单关闭（ContextMenu 的 dismiss）就挂在 document 冒泡阶段，
+ * 一旦被切断，右键菜单在点别的元素/单元格时永远关不掉。
+ * 这里的 closest 命中元素就放行，交给元素自己的 handler 处理选中。
+ */
+function onRootPointerDown(e: PointerEvent) {
+  const target = e.target as Element | null;
+  if (target?.closest?.("[data-design-element]")) return;
+  deselect();
+}
 
 /**
  * 纸张容器 ref —— drop 时取它在视口里的真实矩形（已含滚动与缩放），

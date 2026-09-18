@@ -1,10 +1,41 @@
 import { toRaw } from "vue";
 import { defineStore } from "pinia";
-import type { Element, ElementType, Guide, GuideDir } from "@/components/design/types";
+import type {
+  CellRange,
+  Element,
+  ElementType,
+  Guide,
+  GuideDir,
+  TableElement
+} from "@/components/design/types";
+import { clampRange, normalizeTable, scaleTracks, syncTableGeometry } from "@/components/design/table/model";
 
 /** 生成局部唯一 id。仅用于画布内的临时对象（辅助线），不要求跨会话稳定 */
 let seed = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seed++).toString(36)}`;
+
+/**
+ * 新建元素时对载荷做深拷贝 —— 这一步不能省。
+ *
+ * 素材清单（`materials.ts`）里的 `defaults` 是**模块级常量**，它内部的嵌套结构
+ * （表格的 `colWidths` / `rowHeights` / `cells`、线条的 `start` / `end` / `stroke`）
+ * 全都是**同一个对象实例**。若 `createElement` 只做浅展开（`{...partial}`），
+ * 同一种素材拖出两个就是"两份外壳、一份内脏"：在 A 表里删掉一行，B 表跟着少一行 ——
+ * 因为它们本来就共用同一个 `cells` 数组，而不是"看起来一样"。
+ *
+ * 优先 `structuredClone`（与复制 / 粘贴同一套深拷贝语义）。
+ * 载荷理论上只含纯数据，但万一将来混进不可克隆的值（函数 / DOM 节点），
+ * 退回浅拷贝并留警告，总好过让编辑器在 drop 那一刻整个炸掉。
+ */
+function cloneElementPayload<T extends object>(value: T): T {
+  try {
+    // toRaw：调用方可能传来 Pinia 的响应式 Proxy，而 structuredClone 克隆不了 Proxy
+    return structuredClone(toRaw(value));
+  } catch (err) {
+    console.warn("[design] 元素默认值深拷贝失败，已退回浅拷贝（嵌套数据可能被多个元素共享）", err);
+    return { ...value };
+  }
+}
 
 export const SCALE_MIN = 0.1;
 export const SCALE_MAX = 2;
@@ -80,6 +111,20 @@ export const useDesignStore = defineStore("design", {
      * 它同时也天然保证了"同一时刻只有一个元素在编辑"。
      */
     editingId: null as string | null,
+    /**
+     * 表格内编辑态：正在「进入内部操作」的表格元素 id（null = 不在任何表格内）。
+     *
+     * 这是表格三层选中里的**第 2 层**，与 editingId（第 3 层，单元格内文本编辑）
+     * 是两个不同层级，不要合并成一个字段 —— 它们的退出条件也不同：
+     * 第 3 层靠失焦退出，第 2 层靠 Esc / 点表格外退出。
+     */
+    tableEditingId: null as string | null,
+    /** 表格内选区（矩形，网格坐标）。null = 没有选中任何单元格 */
+    cellRange: null as CellRange | null,
+    /** 选区的「活动格」（焦点格）：右键菜单定位、插入行列、键盘导航都以它为锚 */
+    activeCell: null as { r: number; c: number } | null,
+    /** 第 3 层：正在编辑文本的单元格。null = 没有 */
+    cellEditing: null as { r: number; c: number } | null,
     /** 内部剪贴板：复制/剪切后由右键菜单粘贴为一个新元素 */
     clipboardElement: null as Element | null,
     /** 连续粘贴时的视觉偏移，避免新元素完全盖住来源 */
@@ -88,10 +133,28 @@ export const useDesignStore = defineStore("design", {
 
   getters: {
     /** 按 zIndex 升序排列的元素 */
-    sortedElements: (state) => [...state.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+    sortedElements: (state) => [...state.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
+
+    /**
+     * 当前处于表格编辑态的表格元素（不在表格内时为 null）。
+     * 消费方很多（渲染层、菜单、属性面板、ElementWrapper），所以放 getter 统一算，
+     * 避免每一处都自己 `elements.find` 再判类型。
+     */
+    activeTable(state): TableElement | null {
+      if (!state.tableEditingId) return null;
+      const el = state.elements.find((e) => e.id === state.tableEditingId);
+      return el && el.type === "table" ? el : null;
+    }
   },
 
   actions: {
+    /**
+     * 直接加入一个**已经构造好**的元素。
+     *
+     * 契约：`el` 必须自持数据 —— 它的嵌套结构不能与别的元素（或任何模块级常量）共用引用，
+     * 否则又会出现"改 A 表 B 表跟着变"（见 cloneElementPayload）。
+     * 从素材台创建请走 `createElement`，那里会替你深拷贝。
+     */
     addElement(el: Element) {
       this.elements.push(el);
     },
@@ -103,7 +166,8 @@ export const useDesignStore = defineStore("design", {
      * id 和 type 由这里保证唯一与正确，防止 partial 误覆盖。
      */
     createElement(type: ElementType, partial: Record<string, unknown> = {}): Element {
-      const el = { ...partial, id: nextId("el"), type } as unknown as Element;
+      // partial 必须深拷贝，不能直接展开 —— 理由见 cloneElementPayload。
+      const el = { ...cloneElementPayload(partial), id: nextId("el"), type } as unknown as Element;
       this.elements.push(el);
       this.selectedId = el.id;
       return el;
@@ -115,6 +179,8 @@ export const useDesignStore = defineStore("design", {
       if (this.selectedId === id) this.selectedId = null;
       // 编辑中的元素被删掉，编辑态必须跟着走 —— 否则 editingId 会指向一个不存在的元素
       if (this.editingId === id) this.editingId = null;
+      // 表格被删掉同理：表格编辑态与单元格选区一起作废
+      if (this.tableEditingId === id) this.exitTable();
     },
 
     copyElement(id: string) {
@@ -144,6 +210,9 @@ export const useDesignStore = defineStore("design", {
       // 选中目标一换就退出内联编辑（点画布空白、点别的元素都属于"离开这次编辑"）。
       // 这里必须放行 id === editingId 的情况：进入编辑时会先选中同一个元素。
       if (id !== this.editingId) this.editingId = null;
+      // 选中目标离开这张表 → 退出表格编辑态（点画布空白、选中别的元素都算"离开"）。
+      // 同样放行 id === tableEditingId：进入表格时会先选中它自己。
+      if (id !== this.tableEditingId) this.exitTable();
     },
 
     /**
@@ -161,6 +230,106 @@ export const useDesignStore = defineStore("design", {
       this.editingId = null;
     },
 
+    /* ============================================================
+       表格：第 2 层（表格内编辑态）与第 3 层（单元格文本编辑）
+    ============================================================ */
+
+    /**
+     * 进入表格内编辑态。只是"让单元格变得可选中"，**不**进入文本编辑 ——
+     * 文本编辑是第 3 层，由 startCellEditing 负责。
+     * 锁定的表格不给进（锁定语义是"别动它"，而进去就是为了动它）。
+     */
+    enterTable(id: string) {
+      const el = this.getElement(id);
+      if (!el || el.type !== "table" || el.locked) return;
+      this.selectedId = id;
+      this.tableEditingId = id;
+      this.cellRange = null;
+      this.activeCell = null;
+      this.cellEditing = null;
+    },
+
+    /**
+     * 退出表格编辑态。用早退而不是无条件写四个字段：
+     * selectElement 每次都会调它（点画布、点别的元素），
+     * 而那几个字段绝大多数时候本来就已经是 null。
+     */
+    exitTable() {
+      if (!this.tableEditingId && !this.cellRange && !this.activeCell && !this.cellEditing) return;
+      this.tableEditingId = null;
+      this.cellRange = null;
+      this.activeCell = null;
+      this.cellEditing = null;
+    },
+
+    /** 设置单元格选区（矩形）。active 缺省取选区右下角，与 Excel 框选后的活动格一致 */
+    setCellRange(range: CellRange | null, active?: { r: number; c: number }) {
+      const el = this.activeTable;
+      if (!el || !range) {
+        this.cellRange = null;
+        this.activeCell = null;
+        return;
+      }
+      const next = clampRange(range, el);
+      this.cellRange = next;
+      this.activeCell = active ?? { r: next.r2, c: next.c2 };
+    },
+
+    /** 进入第 3 层：编辑某个单元格的文本。锁定表格不给编 */
+    startCellEditing(r: number, c: number) {
+      const el = this.activeTable;
+      if (!el || el.locked) return;
+      this.cellRange = { r1: r, c1: c, r2: r, c2: c };
+      this.activeCell = { r, c };
+      this.cellEditing = { r, c };
+    },
+
+    stopCellEditing() {
+      this.cellEditing = null;
+    },
+
+    /**
+     * 移动活动格并把选区收敛为单格（键盘导航 / 点击用）。
+     * 越界不报错也不循环，直接不动 —— 表格边界不该有"跳到另一头"的惊喜。
+     */
+    moveActiveCell(dr: number, dc: number) {
+      const el = this.activeTable;
+      const cur = this.activeCell;
+      if (!el || !cur) return;
+      const r = Math.min(el.rows - 1, Math.max(0, cur.r + dr));
+      const c = Math.min(el.cols - 1, Math.max(0, cur.c + dc));
+      this.setCellRange({ r1: r, c1: c, r2: r, c2: c }, { r, c });
+    },
+
+    /**
+     * 表格结构 / 内容的统一写入口。
+     *
+     * 为什么不用 updateElement 的点路径 patch：二维单元格数组没法用点路径表达；
+     * 更要命的是单元格写入**必须整包替换** —— 逐格赋值会触发 N 次响应式更新，
+     * 拖分隔线那种每帧都改的手势会直接被拖垮。
+     *
+     * mutator 直接改元素（调 model.ts 的纯函数），改完由这里统一做三件事：
+     * 补齐缺省字段、回算几何不变量（Σ 行列 ≡ 元素框）、收敛越界的选区。
+     */
+    updateTable(id: string, mutator: (el: TableElement) => void) {
+      const el = this.getElement(id);
+      if (!el || el.type !== "table") return;
+      mutator(el);
+      normalizeTable(el);
+      syncTableGeometry(el);
+      if (this.tableEditingId !== id) return;
+      if (this.cellRange) this.cellRange = clampRange(this.cellRange, el);
+      if (this.activeCell) {
+        this.activeCell = {
+          r: Math.min(this.activeCell.r, el.rows - 1),
+          c: Math.min(this.activeCell.c, el.cols - 1)
+        };
+      }
+      if (this.cellEditing && (this.cellEditing.r >= el.rows || this.cellEditing.c >= el.cols)) {
+        this.cellEditing = null;
+      }
+    },
+
     getElement(id: string): Element | undefined {
       return this.elements.find((e) => e.id === id);
     },
@@ -169,6 +338,17 @@ export const useDesignStore = defineStore("design", {
     updateElement(id: string, patch: Record<string, unknown>) {
       const el = this.getElement(id);
       if (!el) return;
+      // 表格的几何不变量：改总宽高 = 等比缩放全部列宽/行高（文档 §1.5 约束 1）。
+      // 放在这里而不是各个调用点，是因为"拖元素手柄"和"面板改宽高"是两条独立路径，
+      // 漏掉任何一条都会让 Σ colWidths 与 width 慢慢对不上。
+      if (el.type === "table") {
+        if (typeof patch.width === "number" && patch.width !== el.width) {
+          el.colWidths = scaleTracks(el.colWidths, patch.width);
+        }
+        if (typeof patch.height === "number" && patch.height !== el.height) {
+          el.rowHeights = scaleTracks(el.rowHeights, patch.height);
+        }
+      }
       Object.assign(el, patch);
       // 锁定即退出编辑。放在这里而不是菜单命令里，是为了让所有加锁路径（菜单、将来的图层面板、
       // 快捷键）都自动满足这条约束，不用各自记得清一遍。

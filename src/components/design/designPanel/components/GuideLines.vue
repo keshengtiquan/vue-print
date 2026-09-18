@@ -21,7 +21,9 @@
       若直接给 9px 的元素画边框，线会粗得完全不像辅助线。
 
       @dblclick 删除、@pointerdown 拖动。两者都 .stop ——
-      画布根节点有 @pointerdown="deselect"，不拦住的话拖辅助线会顺手把选中元素清掉。
+      辅助线不在元素框内，画布根那条"点空白 = 取消选中"（onRootPointerDown）
+      是按 data-design-element 判落点的，拦不住它；不 .stop 的话拖辅助线会顺手把选中元素清掉。
+      （元素内部则反过来：那里刻意不 stop，好让 document 上的菜单关闭能收到点击。）
 
       group/guide 是给子元素传"父元素 hover"用的（视觉线 hover 时加亮）。
       v 竖线：横向铺满内容区，纵向给 9px 的抓取带（负 margin 让线正好压在中心）；h 横线反之。

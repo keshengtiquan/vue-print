@@ -1,5 +1,6 @@
 <template>
-  <ContextMenu>
+  <!-- :modal="false"：见 ElementContextMenu 里的说明，桌面右键菜单不该禁掉画布上的指针事件 -->
+  <ContextMenu :modal="false">
     <ContextMenuTrigger as-child>
       <slot />
     </ContextMenuTrigger>
@@ -12,6 +13,9 @@
         </ContextMenuItem>
       </template>
     </ContextMenuContent>
+
+    <!-- 点别处就关的哨兵：画布元素会拦 pointerdown 的冒泡，reka 自带的关闭收不到 -->
+    <ContextMenuAutoClose />
   </ContextMenu>
 </template>
 
@@ -25,6 +29,7 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
+import ContextMenuAutoClose from "./ContextMenuAutoClose";
 import { useDesignStore } from "@/store/modules/design";
 import { commonElementMenuConfig, type ElementMenuItemConfig } from "./elements/context-menu-config";
 

@@ -1,5 +1,40 @@
 <template>
   <div v-if="element" class="space-y-2">
+    <!--
+      表格内编辑态（第 2 层）：面板换成「表格 + 单元格」两段并存。
+      这是需求 ④ 的另一半 —— 表格的面板与非表格的面板不只是控件不同，
+      连"改的是什么粒度"都不同（整张表 vs 选区里的格），所以按粒度分成两组。
+      早先是整个面板被单元格面板**替换**掉，代价是编辑表格时连表宽、整表行高都改不了，
+      只能先退出编辑态 —— 而"统一所有行高"恰恰是编辑表格时最想做的事。
+    -->
+    <template v-if="activeTable">
+      <div
+        class="border-primary/30 bg-primary/8 flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs"
+      >
+        <Table2 class="size-3.5 shrink-0" />
+        <span class="flex-1">正在编辑表格</span>
+        <button
+          type="button"
+          class="text-primary flex cursor-pointer items-center gap-1 font-medium hover:underline"
+          @click="exitTable"
+        >
+          退出
+        </button>
+      </div>
+
+      <!-- 表格级：元素框 + 整表行列尺寸。与选区无关，任何时候都可用 -->
+      <div class="space-y-1.5">
+        <p class="text-muted-foreground text-xs font-medium">表格</p>
+        <TableProperties :table="activeTable" />
+      </div>
+
+      <!-- 单元格级：全部作用于当前选区 -->
+      <div class="space-y-1.5">
+        <p class="text-muted-foreground text-xs font-medium">单元格</p>
+        <TableCellProperties :table="activeTable" />
+      </div>
+    </template>
+
     <!-- 锁定态说明条：属性全禁用后总得有个出口，否则用户只能去画布上右键解锁 -->
     <div
       v-if="locked"
@@ -15,77 +50,16 @@
         <LockKeyholeOpen class="size-3.5" />解锁
       </button>
     </div>
-    <Accordion type="multiple" :default-value="['layout', 'behavior', 'specific']">
-      <AccordionItem value="layout">
-        <AccordionTrigger>位置 &amp; 尺寸</AccordionTrigger>
-        <AccordionContent class="px-1">
-          <div class="grid grid-cols-2 gap-x-2 gap-y-2.5 pt-1">
-            <div class="space-y-1.5">
-              <Label for="element-x">X</Label>
-              <NumberField
-                :model-value="element.x"
-                :step="5"
-                :disabled="locked"
-                @update:model-value="setCommon('x', $event)"
-              >
-                <NumberFieldContent>
-                  <NumberFieldDecrement class="cursor-pointer" />
-                  <NumberFieldInput id="element-x" />
-                  <NumberFieldIncrement class="cursor-pointer" />
-                </NumberFieldContent>
-              </NumberField>
-            </div>
-            <div class="space-y-1.5">
-              <Label for="element-y">Y</Label>
-              <NumberField
-                :model-value="element.y"
-                :step="5"
-                :disabled="locked"
-                @update:model-value="setCommon('y', $event)"
-              >
-                <NumberFieldContent>
-                  <NumberFieldDecrement class="cursor-pointer" />
-                  <NumberFieldInput id="element-y" />
-                  <NumberFieldIncrement class="cursor-pointer" />
-                </NumberFieldContent>
-              </NumberField>
-            </div>
-            <div class="space-y-1.5">
-              <Label for="element-width">宽度</Label>
-              <NumberField
-                :model-value="element.width"
-                :min="1"
-                :step="10"
-                :disabled="locked"
-                @update:model-value="setCommon('width', $event)"
-              >
-                <NumberFieldContent>
-                  <NumberFieldDecrement class="cursor-pointer" />
-                  <NumberFieldInput id="element-width" />
-                  <NumberFieldIncrement class="cursor-pointer" />
-                </NumberFieldContent>
-              </NumberField>
-            </div>
-            <div class="space-y-1.5">
-              <Label for="element-height">高度</Label>
-              <NumberField
-                :model-value="element.height"
-                :min="1"
-                :step="10"
-                :disabled="locked"
-                @update:model-value="setCommon('height', $event)"
-              >
-                <NumberFieldContent>
-                  <NumberFieldDecrement class="cursor-pointer" />
-                  <NumberFieldInput id="element-height" />
-                  <NumberFieldIncrement class="cursor-pointer" />
-                </NumberFieldContent>
-              </NumberField>
-            </div>
-          </div>
-          <p class="text-muted-foreground mt-2 text-[10px]">单位：毫米（mm）</p>
-        </AccordionContent>
-      </AccordionItem>
+    <!--
+      元素级属性：表格进入内编辑态时整块让位给上面的「表格 + 单元格」两组
+      （粒度不同，不叠加）。
+    -->
+    <Accordion
+      v-if="!activeTable"
+      type="multiple"
+      :default-value="['layout', 'behavior', 'specific']"
+    >
+      <ElementLayoutSection />
 
       <AccordionItem value="specific">
         <AccordionTrigger>{{ elementTypeLabel }}属性</AccordionTrigger>
@@ -168,6 +142,20 @@
               />
             </div>
           </section>
+          <!--
+            表格的增删行列、合并拆分、逐格样式都在"表格内编辑态"里做，
+            面板上留一个显式入口 —— 否则用户只能靠"双击画布上的表格"这条隐藏路径。
+          -->
+          <Button
+            v-if="element.type === 'table'"
+            type="button"
+            variant="outline"
+            size="sm"
+            class="mt-2.5 w-full cursor-pointer"
+            @click="enterTable"
+          >
+            <Table2 />编辑表格内容
+          </Button>
         </AccordionContent>
       </AccordionItem>
 
@@ -216,7 +204,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { Lock, LockKeyholeOpen } from "@lucide/vue";
+import { Lock, LockKeyholeOpen, Table2 } from "@lucide/vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPt, mmToPx, ptToMm, pxToMm, roundPt } from "@/lib/utils";
 import {
@@ -225,6 +213,7 @@ import {
   AccordionItem,
   AccordionTrigger
 } from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -246,11 +235,34 @@ import { Textarea } from "@/components/ui/textarea";
 import { ELEMENT_PROPERTY_CONFIG, type PropertyFieldConfig } from "../element-property-config";
 import { ColorPicker } from "@/components/color-picker";
 import ImageSourceField from "./ImageSourceField.vue";
+import TableCellProperties from "./TableCellProperties.vue";
+import TableProperties from "./TableProperties.vue";
+import ElementLayoutSection from "./ElementLayoutSection.vue";
 
 const store = useDesignStore();
 const element = computed(() => (store.selectedId ? store.getElement(store.selectedId) : undefined));
 /** 锁定态：面板内所有属性控件统一禁用，只能从说明条或画布右键解锁 */
 const locked = computed(() => element.value?.locked ?? false);
+
+/**
+ * 当前选中的元素**正处在表格内编辑态**时返回该表格，否则 null。
+ *
+ * 用 `store.activeTable` 而不是自己判断 editingId：那个 getter 已经承担了
+ * "id 还在、元素还在、类型还是 table"三重校验，面板没必要再算一遍
+ * （而且漏掉任何一条都会让面板拿着一个不存在的表格去渲染）。
+ */
+const activeTable = computed(() => {
+  const table = store.activeTable;
+  return table && table.id === element.value?.id ? table : null;
+});
+
+function exitTable() {
+  store.exitTable();
+}
+
+function enterTable() {
+  if (element.value) store.enterTable(element.value.id);
+}
 const propertySections = computed(() =>
   element.value ? ELEMENT_PROPERTY_CONFIG[element.value.type] : []
 );

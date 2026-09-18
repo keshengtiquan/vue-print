@@ -70,7 +70,7 @@
 
     <p v-if="error" class="text-destructive text-[10px] leading-normal">{{ error }}</p>
     <p v-else class="text-muted-foreground text-[10px] leading-normal">
-      支持 JPG / PNG / WebP / GIF / SVG，单张不超过 {{ formatSize(maxSize) }}、最长边不超过
+      支持 JPG / PNG / WebP / GIF / SVG，单张不超过 {{ formatImageSize(maxSize) }}、最长边不超过
       {{ maxDimension }}px
     </p>
 
@@ -83,6 +83,7 @@ import { computed, onScopeDispose, ref } from "vue";
 import { ImagePlus, Link2, Loader2, Upload, X } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatImageSize, ImageReadError, readImageFile } from "@/lib/image";
 
 /**
  * 图片源选择器：本地文件转 base64 / 直接填地址，两个入口写的是同一个 element.src。
@@ -144,14 +145,8 @@ const displayName = computed(() => {
 const displayMeta = computed(() => {
   const info = uploaded.value;
   if (!info) return "";
-  return `${info.width} × ${info.height} px · ${formatSize(info.size)}`;
+  return `${info.width} × ${info.height} px · ${formatImageSize(info.size)}`;
 });
-
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
-}
 
 function openPicker() {
   if (props.disabled || busy.value) return;
@@ -177,38 +172,30 @@ async function handleFile(file: File) {
   const token = ++runToken;
   error.value = "";
 
-  if (!file.type.startsWith("image/")) {
-    error.value = `不是图片文件（${file.type || "未知类型"}）`;
-    return;
-  }
-  if (file.size > props.maxSize) {
-    error.value = `图片 ${formatSize(file.size)}，超过 ${formatSize(props.maxSize)} 上限`;
-    return;
-  }
-
   busy.value = true;
-  let objectUrl = "";
   try {
-    // 先用 objectURL 探尺寸：超限就不必读 base64 了（大文件读一遍要几百毫秒）
-    objectUrl = URL.createObjectURL(file);
-    const size = await probeImage(objectUrl);
-    if (token !== runToken) return;
-
-    if (size.width > props.maxDimension || size.height > props.maxDimension) {
-      error.value = `图片 ${size.width}×${size.height}px，超过最长边 ${props.maxDimension}px 上限`;
-      return;
-    }
-
-    const dataUrl = await readAsDataUrl(file);
+    // 校验与读取走 lib/image 的公共实现 —— 表格单元格右键的"插入图片"用的是同一套口径，
+    // 两边各写一份的话迟早会出现"面板传不上去、右键却能传"的差异。
+    const result = await readImageFile(file, {
+      maxSize: props.maxSize,
+      maxDimension: props.maxDimension
+    });
     if (disposed || token !== runToken) return;
 
-    uploaded.value = { name: file.name, size: file.size, width: size.width, height: size.height };
-    emit("update:modelValue", dataUrl);
-    emit("loaded", size);
-  } catch {
-    if (token === runToken) error.value = "图片读取失败，文件可能已损坏";
+    uploaded.value = {
+      name: result.name,
+      size: result.size,
+      width: result.width,
+      height: result.height
+    };
+    emit("update:modelValue", result.dataUrl);
+    emit("loaded", { width: result.width, height: result.height });
+  } catch (err) {
+    if (token !== runToken) return;
+    // 校验类错误的原因对用户是有用信息，原样展示；其余一律归为"读取失败"
+    error.value =
+      err instanceof ImageReadError ? err.message : "图片读取失败，文件可能已损坏";
   } finally {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
     // 被更新的上传接管时，busy 归它管，这里不能清
     if (token === runToken) busy.value = false;
   }
@@ -221,24 +208,5 @@ function onUrlChange(event: Event) {
   error.value = "";
   uploaded.value = null;
   emit("update:modelValue", value);
-}
-
-/** 解码探测原始像素。用 window.Image 避免与图标组件 ImagePlus 的命名空间纠缠 */
-function probeImage(url: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const probe = new window.Image();
-    probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
-    probe.onerror = () => reject(new Error("decode failed"));
-    probe.src = url;
-  });
-}
-
-function readAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("read failed"));
-    reader.readAsDataURL(file);
-  });
 }
 </script>

@@ -1,11 +1,22 @@
 <template>
   <ElementContextMenu :element="element">
+    <!--
+      这里刻意**不**在 pointerdown 上 stopPropagation（历史上是 .stop）。
+      stop 的唯一目的是别让画布根的"点空白 = 取消选中"把刚选中的元素清掉，
+      但它会连 document 上的监听一起切断 —— reka 的"点外面关闭菜单"正是挂在
+      document 冒泡阶段的（ContextMenu 的 dismiss 机制），于是右键菜单在点别的
+      元素/单元格时关不掉。改用精确手段：画布根按 data-design-element 判断落点，
+      元素内部不拦截，事件照常冒泡到 document。
+      手柄（缩放/端点/旋转）与内容层仍保留各自需要的 .stop —— 它们拦的是
+      ElementWrapper 自己的手势，不是 document 的。
+    -->
     <div
       ref="elRef"
       class="absolute touch-none select-none"
       :class="element.locked ? 'cursor-default' : ''"
       :style="wrapperStyle"
-      @pointerdown.stop="onPointerDown"
+      :data-design-element="element.id"
+      @pointerdown="onPointerDown"
       @contextmenu.stop="onContextMenu"
       @dblclick.stop="onDoubleClick"
     >
@@ -17,10 +28,13 @@
           :class="element.locked ? 'border-destructive' : 'border-[#1a73e8]'"
         ></div>
         <!--
-          手柄条件里带上 editing：正在改文字时不该能缩放/旋转，那会一边改字一边改框，纯干扰。
-          （锁定元素本来就不渲染手柄，两者是独立的两个"别动它"的理由。）
+          手柄条件里带上 editing / tableEditing：
+          - editing（文本元素内联编辑中）：一边改字一边改框，纯干扰；
+          - tableEditing（表格内编辑态）：第 2 层的手势已经接管了整张表，
+            元素级手柄浮在同一片区域上只会打架（拖分隔线拖到一半撞上缩放手柄）。
+          锁定元素本来就不渲染手柄，那是独立的一个"别动它"的理由。
         -->
-        <template v-if="!element.locked && !editing">
+        <template v-if="!element.locked && !editing && !tableEditing">
           <!--
             线条用两个端点手柄**替代** 8 个缩放手柄：
             端点必然落在包围盒的角（斜线）或边中点（水平/垂直线）上，位置与缩放手柄必然重合，
@@ -72,12 +86,13 @@ import { mmToPx } from "@/lib/utils";
 import { elementComponents } from "./index";
 import ElementContextMenu from "./ElementContextMenu.vue";
 import { useDrag } from "../../composables/useDrag";
+import { useSnapFeedback, type SnapKey } from "../../composables/useSnapFeedback";
 import {
-  useSnapFeedback,
-  marginKey,
-  guideKey,
-  type SnapKey
-} from "../../composables/useSnapFeedback";
+  MARGIN_SNAP_PX,
+  snapAxis,
+  snapEdge,
+  snapTargets
+} from "../../composables/useSnapTargets";
 import type { Element, ResizeHandle } from "@/components/design/types";
 
 const designState = useDesignStore();
@@ -89,6 +104,8 @@ const elRef = ref<HTMLElement | null>(null);
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
 const selected = computed(() => designState.selectedId === props.element.id);
 const editing = computed(() => designState.editingId === props.element.id);
+/** 该元素是否正处于"表格内编辑态"（第 2 层）。只有表格会为 true */
+const tableEditing = computed(() => designState.tableEditingId === props.element.id);
 const component = computed(() => elementComponents[props.element.type]);
 
 /**
@@ -185,100 +202,11 @@ const ROTATE_SNAP_STEP = 15;
 /** 未按 Shift 时，接近正交角（0/90/180/270）的自动吸附阈值（度） */
 const ROTATE_ORTHO_SNAP = 1.5;
 
-/** 移动时吸附到页边距线的磁吸范围（屏幕 px；换算成 mm 后再比较） */
-const MARGIN_SNAP_PX = 6;
-
-/** 一条可吸附的目标线：key 用于命中高亮，at 是它在纸张坐标系里的位置（mm） */
-type SnapTarget = { key: SnapKey; at: number };
-
-/**
- * 把某个轴上的位置吸附到最近的边距线。
- *
- * 元素每条边（起边 / 终边）都会去够每条边距线，取**距离最近**的一组生效 ——
- * 元素宽于内容区时两条边可能同时在范围内，此时吸最近的，不会左右拉扯。
- *
- * @param pos 元素在该轴的起点（未吸附）
- * @param size 元素在该轴的尺寸
- * @param lines 该轴上的边距线
- * @param tol 容差（mm）
- * @returns 吸附后的起点，以及命中的目标线 key（未命中为 null）
- */
-function snapAxis(pos: number, size: number, lines: SnapTarget[], tol: number) {
-  let bestValue = pos;
-  let bestKey: SnapKey | null = null;
-  let bestDist = Infinity;
-  for (const line of lines) {
-    for (const edge of [pos, pos + size]) {
-      const delta = line.at - edge;
-      const dist = Math.abs(delta);
-      if (dist <= tol && dist < bestDist) {
-        bestValue = pos + delta;
-        bestKey = line.key;
-        bestDist = dist;
-      }
-    }
-  }
-  return { value: bestValue, hit: bestKey };
-}
-
-/**
- * 缩放吸附：把**单个坐标**吸到最近的一条参考线上。
- *
- * 与 snapAxis 的分工必须分清 —— 两者都是"吸到线上"，但动的东西完全不同：
- * - snapAxis（移动用）：两条边都去够线，取最近的一组，**整个框平移**；
- * - snapEdge（缩放、端点用）：只动**这一条边**，对边由它反解尺寸，纹丝不动。
- *
- * 缩放的语义要求对边锁死，套用 snapAxis 会让对边跟着跑（拖 w 手柄结果右边也挪了），
- * 所以这里是独立的函数而不是给 snapAxis 加开关 —— 语义不同的东西不该共用一个名字。
- *
- * @param at 活动边当前所在的坐标（mm，纸张坐标系）
- * @param lines 该轴上的参考线
- * @param tol 容差（mm）
- * @returns 吸附后的坐标，以及命中的目标线 key（未命中为 null）
- */
-function snapEdge(at: number, lines: SnapTarget[], tol: number) {
-  let best = at;
-  let hit: SnapKey | null = null;
-  let bestDist = Infinity;
-  for (const line of lines) {
-    const dist = Math.abs(line.at - at);
-    if (dist <= tol && dist < bestDist) {
-      best = line.at;
-      hit = line.key;
-      bestDist = dist;
-    }
-  }
-  return { value: best, hit };
-}
-
-/**
- * 收集某个轴上的全部吸附目标：两条页边距线 + 该轴上的所有辅助线。
- *
- * 辅助线只在 `showGuides` 打开时才参与 —— 开关关掉就是不显示也不吸附，
- * 否则会出现"看不见的东西在拽我"。
- * 顺带过滤掉纸张外的线：它们多半是纸张尺寸改过之前的残留，拿来吸附只会让人困惑。
- */
-function snapTargets(dir: "v" | "h"): SnapTarget[] {
-  const m = designState.marginMm;
-  const paper = designState.paper;
-  const sizeMm = dir === "v" ? paper.widthMm : paper.heightMm;
-  const edges: SnapTarget[] =
-    dir === "v"
-      ? [
-          { key: marginKey("left"), at: m.left },
-          { key: marginKey("right"), at: paper.widthMm - m.right }
-        ]
-      : [
-          { key: marginKey("top"), at: m.top },
-          { key: marginKey("bottom"), at: paper.heightMm - m.bottom }
-        ];
-  if (!designState.showGuides) return edges;
-  for (const g of designState.guides) {
-    if (g.dir !== dir || g.pos < 0 || g.pos > sizeMm) continue;
-    edges.push({ key: guideKey(g.id), at: g.pos });
-  }
-  return edges;
-}
+/*
+  snapTargets / snapAxis / snapEdge / MARGIN_SNAP_PX 已移到
+  composables/useSnapTargets.ts —— 表格拖行高列宽要吸同一批参考线，
+  两处各写一套的话，"拖到页边距线"会有两种手感。
+*/
 
 /**
  * 移动吸附：让元素边缘对齐到页边距线与辅助线。
@@ -450,6 +378,11 @@ function onPointerDown(e: PointerEvent) {
   // 阻止浏览器原生拖拽/文本选择（text/image 元素默认可拖动/可选，与自定义拖动冲突）
   e.preventDefault();
   designState.selectElement(props.element.id);
+  // 表格内编辑态：第 1 层的移动手势必须让位给第 2 层。
+  // 表格内部的 pointerdown 现在会照常冒泡到这里（它刻意不 stopPropagation，为的是让
+  // document 上的菜单关闭能收到），所以这一条**是主路径而非兜底**：
+  // 表格里的任何点击 —— 单元格、把手、分隔线、边框缝隙 —— 都不该变成"拖走整张表"。
+  if (tableEditing.value) return;
   if (props.element.locked) return;
   mode.value = "move";
   snapshot();
@@ -468,7 +401,14 @@ function onContextMenu() {
  * 缩放/旋转手柄上挂了 @dblclick.stop：它们是叠在元素之上的控件，双击它们不该进编辑态。
  */
 function onDoubleClick() {
-  if (props.element.locked || props.element.type !== "text") return;
+  if (props.element.locked) return;
+  // 表格：双击进入"表格内编辑态"（第 2 层），而不是文本编辑 ——
+  // 表格要改的是某个单元格，得先进到内层去选格，这在 TableElement 里继续。
+  if (props.element.type === "table") {
+    designState.enterTable(props.element.id);
+    return;
+  }
+  if (props.element.type !== "text") return;
   designState.startEditing(props.element.id);
 }
 

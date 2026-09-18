@@ -1,6 +1,7 @@
 import type { Component } from "vue";
 import { Type, LineStyle, Image, Table } from "@lucide/vue";
 import type { Element, ElementType } from "@/components/design/types";
+import { createTableDefaults } from "@/components/design/table/model";
 
 /**
  * 逐成员 Omit。
@@ -27,6 +28,12 @@ export interface MaterialDef {
   /**
    * 创建元素时的默认字段。
    * 不含 id / x / y / type —— id 由 store 生成，x/y 由落点决定，type 就是上面的字段。
+   *
+   * 注意：这是**模块级常量、单份模板**，里面的嵌套结构（表格的 cells/colWidths、
+   * 线条的 start/end/stroke）在整份清单里只有一份实例。
+   * 消费时**必须**交给 `store.createElement`（它内部做深拷贝），
+   * 不要自己 `{...m.defaults}` 后直接塞进 elements —— 浅展开会让同种素材的多个元素
+   * 共享同一份内脏：改 A 的行，B 跟着变。踩过一次，见 cloneElementPayload 的注释。
    */
   defaults: DistributiveOmit<Partial<Element>, "id" | "x" | "y" | "type">;
 }
@@ -65,7 +72,14 @@ export const materials: MaterialDef[] = [
     type: "table",
     label: "表格",
     icon: Table,
-    defaults: { width: 100, height: 50, rows: 3, cols: 5 }
+    // 表格的默认值不只是宽高：行列尺寸是**必须**与元素框一致的数据
+    // （Σ colWidths ≡ width），所以由 createTableDefaults 一次算全，
+    // 不要让 TableElement 渲染时再去补 —— 那等于把不变量交给消费方维护。
+    defaults: {
+      width: 100,
+      height: 50,
+      ...createTableDefaults(100, 50, 3, 5)
+    }
   }
 ];
 

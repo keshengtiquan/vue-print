@@ -22,11 +22,23 @@
   3. 元素容器上的 `select-none` 会继承进 textarea，必须自己补 `select-text`；并给 textarea 加 `@pointerdown.stop`，否则拖选文字会变成拖元素。
 - `onBlur` 里先判断"我还是当前编辑者"再退出：元素被移除时浏览器补的那次 blur 会掐掉刚开始的下一段编辑。
 - **禁止在编辑态** preventDefault 画布的 pointerdown：拦了默认行为 textarea 就不失焦，编辑态关不掉。
+- 反过来，**某条路径一旦 preventDefault 了，那条路径就必须自己显式收编辑态**（`stopCellEditing()`），不能指望 `onBlur` —— 焦点转移正是被拦掉的那个默认行为，blur 永远不会来。同一个根因已经踩过两次：元素级文本编辑、表格单元格（`onCellPointerDown` 里那段 `preventDefault` 让点击别的格子退不出编辑态）。判断口诀：**这条交互里 preventDefault 了吗？是 → 退出编辑必须显式写，别等失焦。**
 - 不要在编辑态禁用属性面板的"内容"字段：禁用控件点不着 → 画布 textarea 不失焦 → 用户要点两次才生效。两条编辑路径靠"失焦即退出"天然互斥，不需要禁用。
 
 ## reka-ui 焦点回填
 
 关闭 Content 类组件（ContextMenu / Popover …）时，reka 走 FocusScope 的 unmount 钩子 → `emits("closeAutoFocus")` → 按 `defaultPrevented` 决定是否把焦点还给 trigger。trigger 不可聚焦时焦点会掉到 body，顶掉自己刚聚焦的元素。正确解法是 `@close-auto-focus` + `preventDefault()`（emits 同步，一定先于回填执行），不要在 nextTick 里延迟聚焦来赌时序。
+
+## 事件冒泡与 reka 菜单关闭（架构级，改动前必读）
+
+- reka 的"点外面关闭"监听在 **document 的冒泡阶段**（`DismissableLayer` → `usePointerDownOutside`，`addEventListener("pointerdown", handler)`，**没有 capture**）。**元素内部任何一处 `stopPropagation` 都会让它彻底失效。**
+- 因此**不要再用 `@pointerdown.stop` 达成"别让画布根取消选中"** —— 它顺手切断了 document 层的一切监听（右键菜单关不掉就是第一个撞上来的）。正确做法是**打标记 + 判落点**：元素根带 `data-design-element`，画布根的 `onRootPointerDown` 用 `closest("[data-design-element]")` 判断，命中就放行。
+  - **要保留 stop 的地方**：`GuideLines`、文本 textarea、各手势手柄（缩放/端点/旋转）。它们拦的是**同一元素内的其它手势**，不是 document，去掉会让两套手势打架。
+- **去掉 stop 的连带代价：父容器 handler 不能假设"事件到达我 = 落点在我身上"。** 子元素不再 stop 之后，它的 pointerdown 会冒泡到父容器 —— 父容器里那些"清理型"动作（清选区、退出编辑态）若无条件执行，就会在子元素刚设好状态之后**下一行把它抹掉**。踩过：`TableElement` 的 `onRootPointerDown` 无条件 `setCellRange(null)`，导致"点单元格不出现蓝框"（单元格 handler 刚选中，冒泡上来又被清空）。
+  - 规矩：**父容器的清理动作一律先判落点**。表格里用 `e.target === rootRef.value`（只有落在 root 自身的留白/边框上才清），画布里用 `closest("[data-design-element]")`。两个 `onRootPointerDown` 现在是同一套惯例。
+- `ContextMenu` 默认 **`modal: true`**，reka 会给 `document.body` 设 `pointer-events: none` —— 菜单开着时下面的元素**全都点不中**（事件目标退化成 `<html>`）。所以**右键菜单必须 `:modal="false"`**，否则"点一下既关菜单、又切到那个单元格"只能做到前半截。
+- 关闭的兜底：`designPanel/components/ContextMenuAutoClose.ts` 哨兵。放进 `<ContextMenu>` 内（与 Trigger/Content 并列），用 reka **公开导出**的 `injectContextMenuRootContext` 拿 `onOpenChange`，在 document 的 **capture 阶段**监听左键 —— capture 是路径第一站，不受任何 stop 影响。判断"落点在 `[data-dismissable-layer]` 内就不关"，保护菜单项自己的 click（提前卸载会让所有菜单命令失效）。
+- 关闭只写状态：Vue 的 DOM 更新是异步的（nextTick），事件仍会完整传播到底下的元素，「关菜单」与「点击生效」不冲突，不会吞掉这次点击。
 
 ## 本地访问 curl 的坑
 
@@ -77,3 +89,58 @@
 - `designPanel/components/` 里：背景纹理由下到上是 `PaperGrid`（纸纹，随缩放缩放）→ `ElementLayer` → `MarginGuides`（屏幕恒定 1px，整层 `pointer-events:none`）→ `GuideLines`（可交互，容器 `none` + 单条 `auto`）。
 - 视图/编辑方式的开关放底部 `statusLine`；文档属性放右侧设置面板。
 - 所有实时刷动的数字读数（坐标、角度、尺寸）必须**定宽 + tabular-nums**，否则会把同行元素推着跳。
+
+## 元素数据的**所有权**（严重，已踩过两次面）
+
+**铁律：每个元素必须自持嵌套数据，绝不与别的元素或模块级常量共用引用。**
+
+- 素材清单（`materials.ts`）的 `defaults` 是**模块级常量、全清单只有一份实例**，含 `cells` / `colWidths` / `rowHeights` / `rowRoles`（表格）、`start` / `end` / `stroke`（线条）等嵌套结构。
+- `createElement` **必须**深拷贝载荷（`cloneElementPayload`：`structuredClone(toRaw(v))`，失败退回浅拷贝并警告）。
+  - 曾经是 `{...partial}` 浅展开 → 拖两个表格出来就是"两份外壳、一份内脏"：**在 A 表删一行，B 表跟着少一行**（实测复现，`cells` 同引用）。
+  - **更狠的连带后果**：`before1.cells === defaults.cells`，所以 A 表的操作会**直接改到模块级模板本身** —— 之后拖出来的新表格也带着被污染的行数/结构，且**刷新页面才会好**。
+- 同类入口的一致性：`copyElement` / `pasteElement` 已用 `structuredClone(toRaw(...))`；`addElement` 是裸 `push`，**契约是"入参必须自持数据"**（见其注释），新代码从素材台创建一律走 `createElement`。
+- 判断方法：凡是「模块级常量 / 默认值对象」进入 `elements`，都要过一遍深拷贝。不要用"看起来一样"解释串改现象 —— **现象是"两份数据是同一个对象"**。
+
+## 表格（P0 已实现）
+
+设计文档：`docs/table-feature-design.md`（v10，**§9 是实现进度 + 各轮 bug 记录**）。**动手前必读**。定位：**数据驱动的明细表**（单据明细），第一期只做静态排版，数据绑定后续再做。
+
+**几何不变量（最关键，违反要返工）**：元素 `height` 不是权威值 —— `width ≡ Σ colWidths`、`height ≡ Σ rowHeights`。拖行/列分隔线只改**相邻**两行/列、**元素框不动**；拖元素手柄 / 面板改宽高则**等比缩放全部行列**（`updateElement` 里自动做，别在调用点各写一遍）。**插入列也不改总宽**：宽度在内部重分配（新列借相邻列宽挂入 → `fitTracks` 整组等比缩回原总宽，`fitTracks` 额外兜 `MIN_TRACK` 下限），**但插入行照旧让表格变高** —— 宽度是版面约束、高度是内容量，两者刻意不对称。**不要写成 `h-full` + 百分比分配行高**：那套假设接数据绑定时必须重写。
+
+**写入口只有两个**：几何/普通字段走 `updateElement(id, patch)`；表格结构与单元格走 **`updateTable(id, mutator)`** —— 它必须**整包替换**（逐格赋值会触发 N 次响应式更新，拖分隔线会被直接拖垮），mutator 改完由它统一补齐字段、回算几何、收敛越界选区。**绝不要用点路径 patch 写 `cells`**（二维数组没法用点路径表达）。
+
+**渲染用 `<table>`**（老板指定，v4 定的）：`table-layout: fixed` + 显式 `<colgroup>`（列宽钉死在数据上，auto 布局内容会参与列宽计算）+ 单元格内容层 `absolute inset-0`。**内容层绝对定位是行高能精确的关键** —— `<tr>` 的 height 本身是最小高度，只有 td 里没有流内内容时它才成为精确值。前提是 td 设 `position: relative` 当锚点。**别把这条改回"按百分比分配行高"或"让内容撑高行"**，那会破坏 `Σ rowHeights ≡ height`。
+`colOffsets` / `rowOffsets` 前缀和仍要保留：选区框、活动格高亮、分隔线热区、行列把手都是**相对表格定位的浮层**，没有表格布局可依托。
+
+**改轨道尺寸有三个语义，靠「表格总尺寸变不变」划清**（`model.ts`，别混用）：拖分隔线 `resizeTrackPair` 相邻两轨让位、总尺寸不动；右键"平均分布" `distributeTracks` 选区内等分现有总长、总尺寸不动；面板「整表行高 / 列宽」`setAllTracks` 每条都改成 value、总尺寸 = 数量 × value（`setAllTracks` 要挡 `null/undefined/NaN`，否则清空输入框会把全表夹成 `MIN_TRACK`）。**整表批量控件在「表格」级分组**（`TableProperties.vue` 的 `table-tracks` 项，不依赖选区；v9 前曾挂在单元格面板，粒度不对已搬走）—— 因为单元格面板的行高输入框 `v-if="rowHeight !== null"` 只在选中整行时渲染，随手点一格根本找不到入口。第三条路径是元素级面板的"高度" / 拖缩放手柄 → `updateElement` 对表格走 `scaleTracks` 等比缩放（比例不变）。
+
+**行列把手带 Excel 式标号（v10）**：编辑态下上方把手（`colHandles`）显示 `colLabel(index)`、左侧把手（`rowHandles`）显示 `index + 1`；`HANDLE_SIZE_PX = 18`（**屏幕 px**，不乘 `pxPerMm`，缩到 50% 也看得清是第几列）。`colLabel` 的**唯一实现在 `table/model.ts`**（0→A…25→Z、26→AA —— 注意 `Z` 之后是 `AA` 不是 `BA`，不是 base-26），面板的选区信息条与画布把手共用，**别在组件里再写一份**。选中态文字要跟着底色换：`bg-primary/60` 的深蓝底上用 `text-primary-foreground`，否则 `text-primary` 看不清。把手**只在编辑态出现**（非编辑态让位给元素级缩放手柄），标号跟着走。
+
+**合并用 `covered` 标记保留格**：`cells[r*cols+c]` 恒等于网格坐标，渲染时跳过被覆盖的格。合并只保留左上内容。插入/删除行列前先把跨线的合并格拆开（`expandMergesCrossing`），否则网格会静默错位。
+
+**边框写入必须"两格同写"（严重，踩过）**。数据层存"格四边"，共享边在几何上是**一条线**（`(r,c).bottom` ≡ `(r+1,c).top`）。渲染交给 `border-collapse: collapse` 合并 —— 但**只写自己那半边会静默失效**：CSS 的裁决规则是**更宽者胜**，邻格那半边通常是表格默认的 0.26mm，于是「调细」输给邻格（看着没反应）、「去掉」回落默认（线还在），只有「调宽」看得见效果。所以写入一律走 `model.ts` 的 `writeBorderEdge(el, map, ref, side, edge)`，它同时写相邻格的对面边（合并格横跨多格时镜像到每一格）。
+- **不变式从"渲染时解出同一个值"变成"写入时写成同一个值"** —— 原先那套 `resolveBorderEdge` / `resolveCellBorders` 已删除（`opposite` 留着给 `writeBorderEdge` 用）。
+- **"删掉属性" ≠ "关掉这条边"**：删属性只是回落表格默认（仍然可见）。关边必须写**显式的 `{ style: "none", width: 0 }`**，且两侧同写。
+- 边框面板是**批改器**（不是"先配笔再应用"）：显示的就是选区当前值，改任一项**立刻**重涂。目标集合是**"可见的边"**，不是"选区内所有格的所有边" —— 否则只想改外框线颜色时会把已清掉的内部线**复活**。混选时只写被改动的那一个属性，其余保留每条边自己的值（见 `TableCellProperties.vue` 的 `paintVisibleEdges` / `setEdgeProp`）。
+- 侧边按钮是**选区外缘**语义（上 = 首行的上边），与「外框线」一致；激活态读 `ownBorderEdge`（含表格默认）而不是只看显式设置 —— 否则新建表格四边明明有线、按钮却全是未激活。
+
+**三层编辑态**：`selectedId`（元素）→ `tableEditingId` + `cellRange`/`activeCell`（单元格）→ `cellEditing`（格内文本）。第 1 层手势必须给第 2 层让位 —— 但**靠 `ElementWrapper` 主动让位**（`tableEditing` 时不启动 move 手势、不渲染元素手柄），**不再靠表格内部 `stopPropagation`**（那会切断 document，见「事件冒泡与 reka 菜单关闭」一节）。
+
+**第 2/3 层状态的消费必须过「表」的门禁（严重，踩过）**：`cellRange` / `activeCell` / `cellEditing` 是**全局单份 + 按坐标索引**的，本身**不含"哪张表"这个信息** —— 画布上两张 3×5 的表，坐标 (0,2) 会同时命中两边。所以每个消费点都要先确认「本表就是那张活动表」（即 `editing = tableEditingId === element.id`），**只比坐标一定错**。
+- 已带门禁的：`selectionRect` / `activeRect` / `isColSelected`·`isRowSelected`（在 `v-if="editing"` 内）/ 单元格右键菜单上下文（`menuContext` 首行就比 `tableEditingId`）/ `ElementProperties.activeTable`（`activeTable` getter + 比对 selectedId）。
+- 漏过的（已修）：`isEditingCell`、`editingKey`（focus 用的 watch）、`onCellBlur`、`onCellInput`。后果是连锁的 —— 编辑 A 表某格时 B 表同坐标的格子也渲染 textarea → 两个 textarea 在 watch 里互相抢焦点 → 先被聚焦的那个失焦触发 `onCellBlur`，坐标比对命中 → 把刚开好的 `cellEditing` 关掉。表现为**「画布上一有两个表格，双击就改不了字」**。
+- 口诀：**凡是读第 2/3 层状态的 computed / handler，第一行先问「我是那张活动表吗」。**
+
+**编辑态面板按粒度分两组（v9，老板纠正的）**：`ElementProperties` 在 `activeTable` 时渲染「表格」组（`TableProperties.vue` = `ElementLayoutSection` 位置&尺寸 + 整表行高/列宽）**和**「单元格」组（`TableCellProperties.vue` = 选区级：行高列宽/文本/对齐/边框/填充/合并）。早先是整个元素级面板被单元格面板**替换**掉（`v-if="activeTable"`），代价是编辑表格时连表宽、整表行高都改不了 —— 而"统一所有行高"恰恰是编辑表格时最想做的事。
+- **改表格总宽/总高必须走 `updateElement`**（内部按几何不变量调 `scaleTracks` 等比缩放全部列宽/行高）；走 `updateTable` 会被随后的 `syncTableGeometry` 覆盖成 `Σ colWidths`/`Σ rowHeights`，表现为**"输入框改不动"**（静默失效）。整表行高/列宽反过来必须走 `updateTable`（要 `syncTableGeometry` 回算总尺寸）。
+- `ElementLayoutSection.vue`（位置 & 尺寸）被**两个宿主复用**（非编辑态元素面板 + 编辑态「表格」组），内部自取 `store.getElement(store.selectedId)` 不传 props；两个宿主互斥渲染，所以 `id="element-x"` 那套不会重复。
+
+**吸附基础设施已抽到 `designPanel/composables/useSnapTargets.ts`**（`snapTargets` / `snapAxis` / `snapEdge` / `MARGIN_SNAP_PX`），元素拖拽与表格拖分隔线共用。新增会吸附的手势请复用它，别另起一套手感。
+
+**图片读取统一走 `src/lib/image.ts`（`readImageFile`）**：体积 5MB / 单边 4096px 的校验口径只能有一份，否则会出现"面板传不上去、右键却能传"。
+
+**明确不做**：单元格内富文本（内容从 string 变文档树，模型与渲染要换骨架）；"溢出到相邻单元格"（数据一长就串列）。
+
+**P0 未做的（别以为有）**：非连续选区、`atLeast` 行高撑高、双击自适应列宽、键盘导航、单元格剪贴板、跨页表头重复、斜线表头、格式刷。
+
+**已知卡点**：跨页表头重复 + 允许断行依赖多页渲染能力，而项目目前没有多页渲染器（导出/打印仍是占位）。
