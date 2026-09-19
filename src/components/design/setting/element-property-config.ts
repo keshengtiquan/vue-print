@@ -1,4 +1,5 @@
 import type { ElementType } from "@/components/design/types";
+import { DEFAULT_BORDER_WIDTH, DEFAULT_CELL_PADDING } from "@/components/design/table/model";
 
 /**
  * 元素独有属性的表单描述。
@@ -15,6 +16,14 @@ export interface PropertyFieldConfig {
   type: PropertyFieldType;
   min?: number;
   step?: number;
+  /**
+   * 字段**未显式设置**时面板显示的"生效默认值"（存在即用，只影响显示，不写回元素）。
+   *
+   * 缺了它，未设过的数值字段会显示 0 —— 而渲染实际用的是代码里的默认值
+   * （如表格默认线宽 `DEFAULT_BORDER_WIDTH` = 1px、默认内边距 `DEFAULT_CELL_PADDING`
+   * = 0.5mm），面板于是显示"线宽 0"却明明有线。数值单位与存储一致（mm）。
+   */
+  fallback?: number;
   placeholder?: string;
   /** 面板展示单位；元素模型仍统一存储为 mm。 */
   displayUnit?: "pt" | "px";
@@ -183,15 +192,19 @@ export const ELEMENT_PROPERTY_CONFIG: Record<ElementType, PropertySectionConfig[
           type: "number",
           displayUnit: "px",
           min: 0,
-          step: 0.1
+          // 与单元格面板的线宽步进保持一致：渲染层有 0.5px 下限（低于半像素浏览器会抹掉），
+          // 再细的步进没有意义
+          step: 0.5,
+          fallback: DEFAULT_BORDER_WIDTH
         },
         {
           key: "padding",
-          label: "默认单元格内边距",
+          label: "默认单元格内边距（mm）",
           path: "cellStyle.padding",
           type: "number",
           min: 0,
-          step: 0.1
+          step: 0.1,
+          fallback: DEFAULT_CELL_PADDING
         }
       ]
     }

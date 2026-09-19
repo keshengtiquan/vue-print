@@ -19,8 +19,18 @@ import type {
 /** 行/列的最小尺寸（mm）。低于这个值既看不见也点不中 */
 export const MIN_TRACK = 2;
 
-/** 表格默认边框线宽（mm）。0.26mm ≈ 1px @96dpi */
-export const DEFAULT_BORDER_WIDTH = 0.26;
+/**
+ * 表格默认边框线宽（mm）。
+ *
+ * **就是 1px**（25.4/96 mm ≈ 0.2646），不是"约等于 1px"的 0.26 ——
+ * 线宽 UI 的单位是 px，存 0.26 换算回来是 0.98px，面板上就显示成 0.98，
+ * 看着像默认值本身是残的。
+ *
+ * 这里写字面量而不是 import `lib/utils` 的 `MM_PER_PX` 是有意的：本模块要保持
+ * **零运行时依赖**（只用 `import type`），才能脱离 Vite 直接拿 Node 跑验证。
+ * 两者同源（1in = 25.4mm = 96px），改动时一起改。
+ */
+export const DEFAULT_BORDER_WIDTH = 25.4 / 96; // = 1px @96dpi
 /** 表格默认边框颜色 */
 export const DEFAULT_BORDER_COLOR = "#000000";
 /** 单元格默认内边距（mm） */

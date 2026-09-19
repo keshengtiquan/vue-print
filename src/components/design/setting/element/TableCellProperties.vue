@@ -346,7 +346,7 @@
 import { computed } from "vue";
 import { Grid2x2, Merge, Split } from "@lucide/vue";
 import { useDesignStore } from "@/store/modules/design";
-import { mmToPt, mmToPx, ptToMm, pxToMm, roundPt } from "@/lib/utils";
+import { mmToPt, mmToPx, ptToMm, pxToMm, roundPx, roundPt } from "@/lib/utils";
 import {
   Accordion,
   AccordionContent,
@@ -396,7 +396,6 @@ import {
   rangeColWidth,
   rangeRowHeight,
   refsInRange,
-  round2,
   splitCell,
   writeBorderEdge,
   type GridRef
@@ -542,8 +541,14 @@ function commonEdge<K extends keyof CellBorderEdge>(key: K): CellBorderEdge[K] |
 }
 
 const borderStyle = computed<CellBorderStyle>(() => commonEdge("style") ?? defaultEdge.value.style);
+/**
+ * 线宽显示成 px（1 位小数）。
+ *
+ * 取整口径必须与元素级面板一致（`roundPx`）—— 存储是 mm，1px = 0.264583mm，
+ * 直接 round2 会把默认的 1px 显示成 0.98。
+ */
 const borderWidthPx = computed(() =>
-  round2(mmToPx(commonEdge("width") ?? defaultEdge.value.width))
+  roundPx(mmToPx(commonEdge("width") ?? defaultEdge.value.width))
 );
 const borderColor = computed(() => commonEdge("color") ?? defaultEdge.value.color);
 

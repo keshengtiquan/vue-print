@@ -206,7 +206,7 @@
 import { computed } from "vue";
 import { Lock, LockKeyholeOpen, Table2 } from "@lucide/vue";
 import { useDesignStore } from "@/store/modules/design";
-import { mmToPt, mmToPx, ptToMm, pxToMm, roundPt } from "@/lib/utils";
+import { mmToPt, mmToPx, ptToMm, pxToMm, roundPx, roundPt } from "@/lib/utils";
 import {
   Accordion,
   AccordionContent,
@@ -313,10 +313,11 @@ function getByPath(target: Record<string, unknown>, path: string): unknown {
 }
 
 function displayValue(field: PropertyFieldConfig) {
-  const value =
-    element.value && getByPath(element.value as unknown as Record<string, unknown>, field.path);
-  if (field.path === "dash" && Array.isArray(value)) return value.join(", ");
-  if (value === undefined && field.path === "fontSize") {
+  const raw = element.value
+    ? getByPath(element.value as unknown as Record<string, unknown>, field.path)
+    : undefined;
+  if (field.path === "dash" && Array.isArray(raw)) return raw.join(", ");
+  if (raw === undefined && field.path === "fontSize") {
     // 与画布渲染的默认 4mm 保持一致，并映射到最接近的标准 pt 档位。
     const points = roundPt(mmToPt(4));
     const sizes =
@@ -328,6 +329,14 @@ function displayValue(field: PropertyFieldConfig) {
       )
       .toString();
   }
+  /*
+    未显式设置过的字段回落到 field.fallback（= 生效默认值），而不是 0 / 空。
+    典型是表格的 `cellStyle.borderWidth`：没设过时渲染走 model 里的
+    DEFAULT_BORDER_WIDTH（1px），面板若显示 0，用户看到的是"线宽 0"而画面明明有线。
+    fallback 只用于**显示**，不会被写回元素 —— 保持"没设过就是没设过"，
+    这样改回默认值不会把显式值钉进数据里。
+  */
+  const value = raw ?? field.fallback;
   if (value !== undefined && value !== null) {
     if (field.displayUnit === "pt") {
       const points = roundPt(mmToPt(Number(value)));
@@ -339,7 +348,8 @@ function displayValue(field: PropertyFieldConfig) {
       );
       return closest.toString();
     }
-    if (field.displayUnit === "px") return (Math.round(mmToPx(Number(value)) * 10) / 10).toString();
+    // px 显示统一走 roundPx：存储是 mm，不取整会把默认的 1px 显示成 0.98
+    if (field.displayUnit === "px") return roundPx(mmToPx(Number(value))).toString();
     return value.toString();
   }
   return (

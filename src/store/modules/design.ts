@@ -8,7 +8,14 @@ import type {
   GuideDir,
   TableElement
 } from "@/components/design/types";
-import { clampRange, normalizeTable, scaleTracks, syncTableGeometry } from "@/components/design/table/model";
+import {
+  clampRange,
+  expandRange,
+  normalizeTable,
+  rangeOfPoint,
+  scaleTracks,
+  syncTableGeometry
+} from "@/components/design/table/model";
 
 /** 生成局部唯一 id。仅用于画布内的临时对象（辅助线），不要求跨会话稳定 */
 let seed = 0;
@@ -275,13 +282,24 @@ export const useDesignStore = defineStore("design", {
       this.activeCell = active ?? { r: next.r2, c: next.c2 };
     },
 
-    /** 进入第 3 层：编辑某个单元格的文本。锁定表格不给编 */
+    /**
+     * 进入第 3 层：编辑某个单元格的文本。锁定表格不给编。
+     *
+     * 选区必须和点选 / 框选走**同一条扩张规则**（`rangeOfPoint` → `expandRange`），
+     * 不能图省事写 1×1：`cellRange` 是整个系统的"当前选区"，只写单格的话
+     * 合并格被双击后选区背景只画在它的一角 —— 边框反倒完整，因为 `activeRect`
+     * 内部自己又扩张过一次，于是呈现成"框是整格、蓝底只有一小块"。
+     *
+     * 顺带把坐标归一到合并区的**宿主格**（左上角）：`cellEditing` 是给渲染层
+     * 比对 td 坐标用的，而 td 只画在宿主格上。
+     */
     startCellEditing(r: number, c: number) {
       const el = this.activeTable;
       if (!el || el.locked) return;
-      this.cellRange = { r1: r, c1: c, r2: r, c2: c };
-      this.activeCell = { r, c };
-      this.cellEditing = { r, c };
+      const range = clampRange(expandRange(el, rangeOfPoint(el, r, c)), el);
+      this.cellRange = range;
+      this.activeCell = { r: range.r1, c: range.c1 };
+      this.cellEditing = { r: range.r1, c: range.c1 };
     },
 
     stopCellEditing() {
@@ -291,6 +309,9 @@ export const useDesignStore = defineStore("design", {
     /**
      * 移动活动格并把选区收敛为单格（键盘导航 / 点击用）。
      * 越界不报错也不循环，直接不动 —— 表格边界不该有"跳到另一头"的惊喜。
+     *
+     * 落到合并格内部时要扩张成整个合并区，否则又是"选区只覆盖合并格的一角"。
+     * `setCellRange` 只做夹取，不负责扩张，所以这里得自己带上。
      */
     moveActiveCell(dr: number, dc: number) {
       const el = this.activeTable;
@@ -298,7 +319,8 @@ export const useDesignStore = defineStore("design", {
       if (!el || !cur) return;
       const r = Math.min(el.rows - 1, Math.max(0, cur.r + dr));
       const c = Math.min(el.cols - 1, Math.max(0, cur.c + dc));
-      this.setCellRange({ r1: r, c1: c, r2: r, c2: c }, { r, c });
+      const range = expandRange(el, { r1: r, c1: c, r2: r, c2: c });
+      this.setCellRange(range, { r: range.r1, c: range.c1 });
     },
 
     /**

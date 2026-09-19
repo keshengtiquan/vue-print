@@ -6,13 +6,32 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** 1px（CSS px，96dpi 基准）= 25.4/96 mm ≈ 0.264583 */
+export const MM_PER_PX = 25.4 / 96;
+/** 1mm = 96/25.4 px ≈ 3.779528 */
+export const PX_PER_MM = 96 / 25.4;
+
 export function pxToMm(px: number): number {
-  return px * (25.4 / 96);
+  return px * MM_PER_PX;
 }
 
 /** mm 转 px（基于 96dpi 屏幕） */
 export function mmToPx(mm: number): number {
-  return mm * (96 / 25.4);
+  return mm * PX_PER_MM;
+}
+
+/**
+ * px 值显示用的取整。
+ *
+ * 与 `roundPt` 同理：UI 一律用"整数 / 半 px"表述，但**存储的 mm 不做任何 round**
+ * （打印精度不能被显示层吃掉）。
+ *
+ * 不取整的代价是实打实的：mm↔px 来回一趟必然带小数（1px = 0.264583mm），
+ * 于是默认的 1px 线会被显示成 **0.98**，看着像"默认值本身就是残缺的"。
+ * 保留 1 位小数是为了还能表达 0.5px 这种发丝线。
+ */
+export function roundPx(px: number): number {
+  return Math.round(px * 10) / 10;
 }
 
 /* ============================================================
