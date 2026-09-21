@@ -141,7 +141,7 @@ export function createTableDefaults(
   height: number,
   rows: number,
   cols: number
-): Pick<TableElement, "rows" | "cols" | "colWidths" | "rowHeights" | "cells" | "rowRoles" | "headerRows"> {
+): Pick<TableElement, "rows" | "cols" | "colWidths" | "rowHeights" | "cells"> {
   const r = Math.max(1, rows);
   const c = Math.max(1, cols);
   return {
@@ -149,9 +149,7 @@ export function createTableDefaults(
     cols: c,
     colWidths: distribute(width, c),
     rowHeights: distribute(height, r),
-    cells: createCells(r, c),
-    rowRoles: Array.from({ length: r }, () => "normal" as const),
-    headerRows: 0
+    cells: createCells(r, c)
   };
 }
 
@@ -197,9 +195,6 @@ export function normalizeTable(el: TableElement): void {
   for (const cell of el.cells) {
     cell.colspan = Math.max(1, Math.floor(cell.colspan || 1));
     cell.rowspan = Math.max(1, Math.floor(cell.rowspan || 1));
-  }
-  if (!Array.isArray(el.rowRoles) || el.rowRoles.length !== el.rows) {
-    el.rowRoles = Array.from({ length: el.rows }, () => "normal" as const);
   }
   if (!Array.isArray(el.rowHeightModes) || el.rowHeightModes.length !== el.rows) {
     el.rowHeightModes = Array.from({ length: el.rows }, () => "fixed" as const);
@@ -591,7 +586,6 @@ export function insertRow(el: TableElement, at: number): void {
   const row: TableCell[] = coveredFlags.map((covered) => (covered ? coveredCell() : createCell()));
   el.cells.splice(a * cols, 0, ...row);
   el.rowHeights.splice(a, 0, borrowSize(el.rowHeights, a));
-  el.rowRoles?.splice(a, 0, "normal");
   el.rowHeightModes?.splice(a, 0, "fixed");
 }
 
@@ -648,7 +642,6 @@ export function removeRow(el: TableElement, at: number): void {
   expandMergesCrossing(el, new Set([a]), new Set());
   el.cells.splice(a * el.cols, el.cols);
   el.rowHeights.splice(a, 1);
-  el.rowRoles?.splice(a, 1);
   el.rowHeightModes?.splice(a, 1);
 }
 

@@ -3,12 +3,24 @@
     覆盖整张纸的辅助层。三条硬约束（原 scoped 样式里的注释，改动时必须保留）：
     - pointer-events: none —— 绝不能拦截底下元素的选中/拖动/缩放
       （画布根节点的 pointerdown 会在落点不属于任何元素时取消选中，被拦住会更糟）；
-    - z-index 远高于元素（元素 zIndex 从 0 起），参考线应始终可见；
+    - 层级只保证"盖过元素"即可（元素 zIndex 从 0 起且当前无 UI 可调），
+      见下方层级约定注释 —— **不要**再往上堆大数字来"压过 dialog"；
     - 刻意不用 primary 色：蓝在本项目代表"选中/激活"，留给元素选中框，
       边距线是背景参考语义，用中性色退到后景。
   -->
+  <!--
+    层级约定（画布内，isolate 上下文，与全局浮层互不比较）：
+      0    PaperGrid 纸纹
+      0+   ElementLayer（element.zIndex，当前恒为 0）
+      30   本组件：边距线
+      40   GuideLines：吸附参考线
+
+    40 是这一层级的**上界**：将来元素若支持"上移/下移一层"，其 zIndex 上限必须
+    低于 30，否则边距线会被元素盖住。全局浮层（dialog / 下拉 / 右键菜单）统一用
+    shadcn 的 z-50，那套数字在**另一个**层叠上下文里比较，与本文件无关。
+  -->
   <svg
-    class="pointer-events-none absolute inset-0 z-9999 size-full overflow-visible"
+    class="pointer-events-none absolute inset-0 z-30 size-full overflow-visible"
     :viewBox="`0 0 ${paperW} ${paperH}`"
     preserveAspectRatio="none"
     aria-hidden="true"

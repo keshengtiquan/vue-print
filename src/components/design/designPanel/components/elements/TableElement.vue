@@ -4,6 +4,8 @@
     class="relative h-full w-full"
     :class="editing ? 'cursor-cell' : ''"
     @pointerdown="onRootPointerDown"
+    @dragover="onCellDragOver"
+    @drop="onCellDrop"
   >
     <!--
       改这段之前先读注释。
@@ -21,9 +23,10 @@
       （更宽者胜 → 样式优先级 → 靠前者），不必自己裁决，表现与 Word/Excel 一致，
       也省掉一层手工几何（选区框、分隔线热区仍用 colOffsets/rowOffsets 前缀和）。
 
-      将来做"表头行跨页重复"时，把前 headerRows 行从 tbody 挪进 <thead> 即可：
-      浏览器的打印引擎对 table 有原生分页支持（表头逐页重复、行内不断开），
-      这是 div 网格无论怎么写都拿不到的。
+      将来做"表头行跨页重复"时，得先把"前 N 行是表头"这个声明加回 TableElement
+      （预留字段 `headerRows` 已作为"只存不消费"删除，见 data-binding-design §11.14），
+      再把那几行从 tbody 挪进 <thead>：浏览器的打印引擎对 table 有原生分页支持
+      （表头逐页重复、行内不断开），这是 div 网格无论怎么写都拿不到的。
     -->
     <table :style="tableStyle">
       <colgroup>
@@ -34,7 +37,7 @@
         />
       </colgroup>
       <tbody>
-        <tr v-for="row in rowViews" :key="row.r" :style="{ height: `${row.height * pxPerMm}px` }">
+        <tr v-for="row in rowViews" :key="row.key" :style="{ height: `${row.height * pxPerMm}px` }">
           <td
             v-for="view in row.cells"
             :key="view.key"
@@ -73,7 +76,7 @@
                 @pointerdown.stop
                 @dblclick.stop
               ></textarea>
-              <div v-else :style="view.text">{{ view.content?.value }}</div>
+              <div v-else :style="view.text">{{ view.display }}</div>
             </div>
           </td>
         </tr>
@@ -155,6 +158,7 @@
         {{ handle.index + 1 }}
       </div>
     </template>
+
   </div>
 </template>
 
@@ -186,8 +190,11 @@ import {
 import { useDrag } from "../../composables/useDrag";
 import { useSnapFeedback, type SnapKey } from "../../composables/useSnapFeedback";
 import { snapEdge, snapTargets, snapTolerance } from "../../composables/useSnapTargets";
+import { FIELD_MIME } from "@/components/design/data/model";
+import { useDataBinding } from "@/components/design/data/useDataBinding";
 
 const store = useDesignStore();
+const ops = useDataBinding();
 const props = defineProps<{ element: TableElement }>();
 
 /**
@@ -216,9 +223,13 @@ interface CellView {
   contentBox: CSSProperties;
   text: CSSProperties;
   content: TableCellContent | undefined;
+  /** 单元格里写的文本原文（含 `{字段}` 占位符），**不替换** */
+  display: string;
 }
 
 interface RowView {
+  /** v-for 的 key */
+  key: string;
   r: number;
   height: number;
   cells: CellView[];
@@ -330,17 +341,54 @@ const rowViews = computed<RowView[]>(() => {
       td: cellTdStyle(el, ref.r, ref.c, cell),
       contentBox,
       text,
-      content
+      content,
+      display: ""
     });
     byRow.set(ref.r, list);
   }
 
-  return Array.from({ length: el.rows }, (_, r) => ({
+  const baseRows = Array.from({ length: el.rows }, (_, r) => ({
     r,
     height: el.rowHeights[r] ?? 0,
     cells: byRow.get(r) ?? []
   }));
+
+  /*
+    画布**只渲染模板网格本身**，不做任何数据扩展。这是明确做过的决定，不是还没做：
+
+    早先版本会按样本记录数把"明细模板行"复制 N 份（抄金蝶的规则）。改成
+    "画布不渲染字段值"（§6.7 / 表格文档 §1.5 约束 2）之后，复制出来的 N 行内容
+    **完全相同**，只剩视觉噪音；而代价是实打实的 —— `rowOffsets` 只认模板行，
+    DOM 里一旦多出几行，行分隔线热区与行把手就会画在错的位置上。
+    "哪一行要重复 N 遍"是**导出 / 套打**的语义，画布不承担。
+
+    后来一度把这件事挪到面板的整表预览里（`detailRowIndex` + `data/tableRender.ts`），
+    老板看过之后要求整块拿掉（§11.16）：表格的取数留到导出 / 套打阶段再做，
+    不值得在面板上养一套"只有预览看得见"的展开规则。
+  */
+  return baseRows.map((row) => ({
+    ...row,
+    key: `r${row.r}`,
+    cells: row.cells.map((cell) => ({ ...cell, display: renderCell(cell.content) }))
+  }));
 });
+
+/**
+ * 单元格的显示文本：**原样返回，一个字符都不替换**。
+ *
+ * 与 `TextElement.displayContent` 同一个口径（§6.7 / 表格文档 §1.5 约束 2）：
+ * 设计态画布是排版视图，单元格里写 `{品名}` 就显示 `{品名}`，
+ * 字宽与换行不跟着数据抖。
+ *
+ * 之所以还留一个函数、而不是在调用处内联 `content.value`：它是"这一格要吃数据"
+ * 的**唯一入口**。将来预览 / 导出 / 打印态接线时，在**这里**接上
+ * `renderTemplate(content.value, ctx)`（`ctx` 由导出层逐行构造）即可，
+ * 不用去翻三处调用点。
+ */
+function renderCell(content: TableCellContent | undefined): string {
+  if (content?.type !== "text") return "";
+  return content.value;
+}
 
 /** 选区矩形（mm，相对表格左上角）。非编辑态不显示 —— 那是第 1 层的事 */
 const selectionRect = computed(() => {
@@ -813,5 +861,67 @@ function onCellContextMenu(view: CellView) {
   const range = store.cellRange;
   if (range && rangeContains(range, view.r, view.c)) return;
   store.setCellRange(rangeOfPoint(props.element, view.r, view.c), { r: view.r, c: view.c });
+}
+
+/* ============================================================
+   字段拖入：把素材台的字段拖到某个单元格
+============================================================ */
+
+/**
+ * dragover **必须** preventDefault，否则浏览器不认为这里是有效放置目标、不会派发 drop。
+ * 但只在自己关心的 MIME 上这么做：无条件 preventDefault 会抢走素材拖拽的落点，
+ * 于是"把文本素材拖到表格上"会变成"往单元格里塞字"。
+ *
+ * 与画布同款：这里**不写任何响应式状态** —— dragover 每帧都触发。
+ */
+function onCellDragOver(e: DragEvent) {
+  if (!e.dataTransfer?.types.includes(FIELD_MIME)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+}
+
+function onCellDrop(e: DragEvent) {
+  const raw = e.dataTransfer?.getData(FIELD_MIME);
+  if (!raw) return;
+  e.preventDefault();
+  // 别让画布再处理一次 —— 否则会同时"插进单元格"和"尝试放置素材"
+  e.stopPropagation();
+  let payload: { field?: string; dataSetId?: string };
+  try {
+    payload = JSON.parse(raw) as { field?: string; dataSetId?: string };
+  } catch {
+    return;
+  }
+  const field = payload.field ?? "";
+  if (!field) return;
+  const cell = pointToTemplateCell(e.clientX, e.clientY);
+  if (!cell) return;
+  // 往单元格拖字段 = 声明"这张表用这个字段所属的数据集"，所以连 dataSetId 一起传
+  ops.appendFieldToCell(props.element.id, cell.r, cell.c, field, payload.dataSetId);
+}
+
+/**
+ * 落点 → 网格坐标（局部 mm → 行列，含旋转反算）。
+ *
+ * 画布只渲染模板网格，DOM 里的行与 `rowOffsets` 一一对应，所以这里**不需要**
+ * 任何"把展开出来的数据行折算回模板行"的处理 —— 表格里压根没有数据行
+ * （见 §11.10；曾经短暂存在的"面板整表预览"也已移除，§11.16）。
+ * 函数名里的 "template" 是历史遗留，直接当 `pointToCell` 读即可。
+ */
+function pointToTemplateCell(clientX: number, clientY: number): { r: number; c: number } | null {
+  const root = rootRef.value;
+  const el = props.element;
+  if (!root) return null;
+  const p = pxPerMm.value;
+  const rect = root.getBoundingClientRect();
+  const dx = clientX - (rect.left + rect.width / 2);
+  const dy = clientY - (rect.top + rect.height / 2);
+  const rad = ((el.rotation ?? 0) * Math.PI) / 180;
+  const lx = dx * Math.cos(rad) + dy * Math.sin(rad);
+  const ly = -dx * Math.sin(rad) + dy * Math.cos(rad);
+  const mmX = lx / p + el.width / 2;
+  const mmY = ly / p + el.height / 2;
+  const col = segmentAt(colOffsets(el), mmX);
+  return { r: segmentAt(rowOffsets(el), mmY), c: col };
 }
 </script>

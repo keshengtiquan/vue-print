@@ -1,5 +1,10 @@
 <template>
-  <div class="h-full w-full" :style="containerStyle">
+  <div
+    class="h-full w-full"
+    :style="containerStyle"
+    @dragover="onFieldDragOver"
+    @drop="onFieldDrop"
+  >
     <!--
       内联编辑用 textarea 而不是 contenteditable，三条理由（按重要性）：
       1. 中文输入法。contenteditable 必须自己写 composition 锁，漏一处就是"拼音打一半被提交"；
@@ -30,7 +35,7 @@
       @pointerdown.stop
       @dblclick.stop
     ></textarea>
-    <div v-else :style="textStyle">{{ element.content }}</div>
+    <div v-else :style="textStyle">{{ displayContent }}</div>
   </div>
 </template>
 
@@ -39,11 +44,67 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
+import { FIELD_MIME } from "@/components/design/data/model";
 import type { TextElement } from "@/components/design/types";
+import { useDataBinding } from "@/components/design/data/useDataBinding";
 
 const designState = useDesignStore();
+const ops = useDataBinding();
 
 const props = defineProps<{ element: TextElement }>();
+
+/**
+ * 渲染态的内容：**原样显示，一个字符都不替换**。
+ *
+ * 设计态画布是**排版视图**，不是数据预览 —— 上面写 `{品名}`，画布上就显示 `{品名}`。
+ * 这是已经定死的口径，不是简化实现：
+ * - 表格文档 §1.5 约束 2："`content.value` 允许含 `{品名}` 这类占位符，**设计态原样显示**"
+ * - 本文档 §6.7："设计态始终显示写进去的静态文本（占位符原样保留）"
+ *
+ * 两条理由：
+ * 1. **排版是设计态唯一要回答的问题**。字宽、换行、对齐都不该随取到什么值而抖
+ *    —— 否则"照着一份数据调好的版，换份数据就错位"。
+ * 2. **有占位符本身就是要看的信息**。它写着"这里引用的是哪个字段"，
+ *    而这是设计态真正需要知道的；字段值属于渲染态要回答的问题。
+ *
+ * `renderTemplate` 因此**不在画布上被调用** —— 它只服务将来的预览 / 导出 / 打印态。
+ * 保留这个 computed（而不是在模板里直接写 `{{ element.content }}`）是为了让
+ * "这里将来要接渲染"有一个明确的落点：接线时只用改这一处。
+ */
+const displayContent = computed(() => props.element.content ?? "");
+
+/* ============================================================
+   字段拖入：把左侧字段树的字段拖到元素上
+============================================================ */
+
+/**
+ * 拖拽落点的判定放在**元素自己**身上，而不是画布层做命中检测：
+ * drop 事件本来就会冒泡，元素先处理并 `stopPropagation`，画布根本收不到；
+ * 让画布去 `elementFromPoint` 反查"落到了哪个元素"，等于把同一件事做两遍。
+ *
+ * 只在自己关心的 MIME 上 preventDefault —— 无条件 prevent 会抢走素材拖拽的落点，
+ * 于是"把图片素材拖到文本上"会变成"往文本里插占位符"。
+ */
+function onFieldDragOver(e: DragEvent) {
+  if (!e.dataTransfer?.types.includes(FIELD_MIME)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+}
+
+function onFieldDrop(e: DragEvent) {
+  const raw = e.dataTransfer?.getData(FIELD_MIME);
+  if (!raw) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try {
+    const { field, dataSetId } = JSON.parse(raw) as { field?: string; dataSetId?: string };
+    // dataSetId 是"这个字段属于哪个数据集"。带上它，拖一下就自动绑好，
+    // 不需要用户再去右侧面板选一次数据集（也就没有"没绑定的元素"这回事）。
+    if (field) ops.appendFieldToElement(props.element.id, field, dataSetId);
+  } catch {
+    // 载荷不是我们的格式，静默忽略 —— 拖进来的可能是任意文本
+  }
+}
 
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
 const verticalAlignment = computed(() =>

@@ -10,9 +10,12 @@
 
     辅助线专用色是洋红（pink-600），刻意避开 primary（选中/激活语义）与边距线的中性灰。
     辅助线是"第三类"参考物，必须有自己的颜色身份。
+
+    层级 40 = 画布内的最高层（约定见 MarginGuides.vue 顶部注释）。
+    这里同样**不是**"越大越安全"：画布根已 isolate，堆大数字只会误导后来人。
   -->
   <div
-    class="pointer-events-none absolute inset-0 z-10000"
+    class="pointer-events-none absolute inset-0 z-40"
     :style="{ '--paper-x': `${paperX}px`, '--paper-y': `${paperY}px` }"
   >
     <!--

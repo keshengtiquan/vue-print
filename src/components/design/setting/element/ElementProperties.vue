@@ -57,9 +57,21 @@
     <Accordion
       v-if="!activeTable"
       type="multiple"
-      :default-value="['layout', 'behavior', 'specific']"
+      :default-value="['layout', 'binding', 'specific', 'behavior']"
     >
       <ElementLayoutSection />
+
+      <!--
+        「数据绑定」与「元素属性」是两个层级的事：前者决定内容从哪来，
+        后者决定长什么样。分成两个折叠项而不是塞进同一栏，是因为绑定的东西
+        （数据集 / 明细行 / 列映射）比样式多得多，混在一起会把样式项淹掉。
+      -->
+      <AccordionItem value="binding">
+        <AccordionTrigger>数据绑定</AccordionTrigger>
+        <AccordionContent class="px-1">
+          <BindingSection />
+        </AccordionContent>
+      </AccordionItem>
 
       <AccordionItem value="specific">
         <AccordionTrigger>{{ elementTypeLabel }}属性</AccordionTrigger>
@@ -238,6 +250,7 @@ import ImageSourceField from "./ImageSourceField.vue";
 import TableCellProperties from "./TableCellProperties.vue";
 import TableProperties from "./TableProperties.vue";
 import ElementLayoutSection from "./ElementLayoutSection.vue";
+import BindingSection from "./BindingSection.vue";
 
 const store = useDesignStore();
 const element = computed(() => (store.selectedId ? store.getElement(store.selectedId) : undefined));

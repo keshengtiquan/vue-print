@@ -3,6 +3,41 @@ export type ElementType = "text" | "table" | "line" | "image";
 /** 尺寸手柄：8 个方向 */
 export type ResizeHandle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
+/* ============================================================
+   数据绑定（设计文档：docs/data-binding-design.md）
+
+   绑定分两级，这是"自由画布 + 元素"相对"纯单元格模型"的必然差异：
+   - 元素级（文本 / 图片）：绑一个数据集，取**第一条记录**的字段 → 单据头场景
+   - 表格级：绑一个数据集 + 指定明细模板行 → 按记录数纵向复制 → 明细区场景
+
+   表格的绑定同样落在 `binding` 上，**不再单独存一份 `dataSetId`** ——
+   同一件事有两个字段，迟早会分叉。
+============================================================ */
+
+/**
+ * 元素的数据绑定声明。
+ *
+ * 一期只有"绑哪个数据集"，**刻意不做** `filter`/关联条件（文档 §2.6 明确一期不做：
+ * 多数据集 JOIN、子表嵌在父表行里、跨表聚合）。字段先占位留下，
+ * 是因为等主从关联真做的时候，改的是消费方逻辑而不是数据形状。
+ */
+export interface ElementBinding {
+  /**
+   * 绑定的数据集 id。
+   *
+   * **不填 = 未绑定**：元素按静态内容渲染，里面的占位符会原样留在画布上 ——
+   * 一眼就能看出"这里没取到数据"，比悄悄换成另一份数据好排查得多。
+   *
+   * 正常路径下用户不需要手填：从左侧字段树拖一个字段到元素上就自动写上了。
+   * "字段属于哪个数据集"是字段自带的信息（`FieldNode` 的拖拽载荷里带 `dataSetId`），
+   * 所以**没有"默认数据集 / 主数据集"这种兜底概念** ——
+   * 元素绑谁，永远等于"用户往它里面拖了哪份数据的字段"。
+   */
+  dataSetId?: string;
+  /** 二期：过滤条件。一期不消费 */
+  filter?: string;
+}
+
 export interface BaseElement {
   id: string;
   type: ElementType;
@@ -18,6 +53,8 @@ export interface BaseElement {
   repeatOnEachPage?: boolean;
   /** 是否参与打印输出。默认 true；画布上的定位标注/备注可关掉 */
   printable?: boolean;
+  /** 数据绑定。不绑数据集的元素按静态内容渲染 */
+  binding?: ElementBinding;
 }
 
 export interface TextElement extends BaseElement {
@@ -128,9 +165,6 @@ export interface TableCell {
   style?: TableCellStyle;
 }
 
-/** 行角色：第一期全部 normal。数据版靠它区分明细模板行与表头行 */
-export type RowRole = "header" | "detail" | "summary" | "normal";
-
 /** 矩形选区（网格坐标，含端点，已归一化为 r1≤r2 / c1≤c2） */
 export interface CellRange {
   r1: number;
@@ -153,11 +187,6 @@ export interface TableElement extends BaseElement {
   rowHeightModes?: SizeMode[];
   /** 行优先扁平数组，长度 = rows × cols */
   cells: TableCell[];
-  rowRoles?: RowRole[];
-  /** 前 N 行每页重复（跨页表头重复） */
-  headerRows?: number;
-  /** 明细模板行索引（数据版用，第一期空着） */
-  detailRowIndex?: number;
   allowBreakAcrossPages?: boolean;
   /** 表格默认单元格边框与内边距：新格子与"缺省边"的回落值 */
   cellStyle?: {

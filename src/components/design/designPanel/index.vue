@@ -1,7 +1,20 @@
 <template>
+  <!--
+    `isolate`（isolation: isolate）是**层级防火墙**，不是装饰：它让画布建立自己的
+    层叠上下文，于是画布内部所有 z-index 都退化成"局部坐标"，再也跑不出去。
+
+    没有它就是这个后果（真实踩过）：MarginGuides 的 z-9999 / GuideLines 的 z-10000
+    因为画布根 `z-index: auto` 而不成上下文，直接和根上下文里的浮层比大小 ——
+    于是边距线盖住了 dialog；同理它也压着挂到 body 上的右键菜单（ContextMenuPortal）
+    和那条 teleport 出去的浮动提示条，只是线细不易察觉。
+
+    有了它，"画布内用多大数字"与"全局浮层用 z-50"就彻底解耦：两边不再互相比较。
+    注意它**不**约束 position: fixed（那是 transform/filter/contain 的活），
+    所以画布内将来若有 fixed 元素也不会被牵连。
+  -->
   <div
     ref="rootRef"
-    class="relative overflow-hidden bg-gray-50"
+    class="relative isolate overflow-hidden bg-gray-50"
     @mousemove="onMouseMove"
     @mouseleave="onMouseLeave"
     @pointerdown="onRootPointerDown"
