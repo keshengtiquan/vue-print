@@ -1,13 +1,13 @@
 <template>
   <svg class="block h-full w-full overflow-visible">
     <line
-      :x1="sx"
-      :y1="sy"
-      :x2="ex"
-      :y2="ey"
+      :x1="geom.x1"
+      :y1="geom.y1"
+      :x2="geom.x2"
+      :y2="geom.y2"
       :stroke="element.stroke.color"
-      :stroke-width="strokeWidth"
-      :stroke-dasharray="dashArray"
+      :stroke-width="geom.strokeWidth"
+      :stroke-dasharray="geom.dashArray"
     />
   </svg>
 </template>
@@ -16,6 +16,7 @@
 import { computed } from "vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
+import { lineGeometry } from "@/components/design/render/style";
 import type { LineElement } from "@/components/design/types";
 
 const designState = useDesignStore();
@@ -23,12 +24,7 @@ const designState = useDesignStore();
 const props = defineProps<{ element: LineElement }>();
 
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
-const sx = computed(() => props.element.start.x * pxPerMm.value);
-const sy = computed(() => props.element.start.y * pxPerMm.value);
-const ex = computed(() => props.element.end.x * pxPerMm.value);
-const ey = computed(() => props.element.end.y * pxPerMm.value);
-const strokeWidth = computed(() => props.element.stroke.width * pxPerMm.value);
-const dashArray = computed(() =>
-  props.element.dash ? props.element.dash.map((d) => d * pxPerMm.value).join(" ") : undefined
-);
+
+/** 端点、线宽、虚线全部来自 `render/style.ts` 的共享函数（预览渲染调的是同一个） */
+const geom = computed(() => lineGeometry(props.element, pxPerMm.value));
 </script>

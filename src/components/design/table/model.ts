@@ -199,8 +199,50 @@ export function normalizeTable(el: TableElement): void {
   if (!Array.isArray(el.rowHeightModes) || el.rowHeightModes.length !== el.rows) {
     el.rowHeightModes = Array.from({ length: el.rows }, () => "fixed" as const);
   }
+  // 行高自适应（docs/row-auto-height-design.md）首期不支持纵向合并：
+  // 含 rowspan > 1 的行，自然高由整组合并格共同决定，逐行测量口径不清，
+  // 强制回 fixed —— 先不支持，绝不静默画错（与明细行跨行合并告警同哲学）。
+  for (let i = 0; i < el.cells.length; i++) {
+    const cell = el.cells[i];
+    if (cell.rowspan > 1) {
+      const r = Math.floor(i / el.cols);
+      if (r < el.rows && el.rowHeightModes[r] !== "fixed") el.rowHeightModes[r] = "fixed";
+    }
+  }
   if (!Array.isArray(el.colWidthModes) || el.colWidthModes.length !== el.cols) {
     el.colWidthModes = Array.from({ length: el.cols }, () => "fixed" as const);
+  }
+
+  /*
+    明细行声明的兜底校验（渲染态的字段，画布不消费，但**必须**在这里收拾干净）。
+
+    两个字段都要防的是"模板 JSON 被手工改过 / 旧版本残留"：
+    - `detailRowIndex` 越界 → 直接清掉。留着一个指不到任何行的下标，
+      `expand.ts` 里的展开会算出错的行序列，而那是"只有取数后才看得见"的错误。
+    - `headerRows` 越界 → 夹到合法区间。它是"前 N 行是表头"，
+      N 超过行数没有意义，超过明细行更会把明细行本身当成表头重复出去。
+  */
+  if (el.detailRowIndex !== undefined) {
+    if (
+      !Number.isInteger(el.detailRowIndex) ||
+      el.detailRowIndex < 0 ||
+      el.detailRowIndex >= el.rows
+    ) {
+      el.detailRowIndex = undefined;
+    }
+  }
+  if (el.headerRows !== undefined) {
+    const max = el.detailRowIndex ?? el.rows;
+    el.headerRows = clamp(Math.floor(el.headerRows) || 0, 0, max);
+  }
+  if (Array.isArray(el.columnFields)) {
+    // 长度必须跟 cols 走：`insertCol` / `removeCol` 会维护它，但外部赋值（粘贴、
+    // 将来跨模板复制）不一定 —— 长度错位的后果是"某一列永远取不到值"，很难看出原因。
+    if (el.columnFields.length !== el.cols) {
+      el.columnFields = Array.from({ length: el.cols }, (_, i) => el.columnFields?.[i] ?? null);
+    }
+  } else if (el.columnFields !== undefined) {
+    el.columnFields = undefined;
   }
 }
 
@@ -587,6 +629,15 @@ export function insertRow(el: TableElement, at: number): void {
   el.cells.splice(a * cols, 0, ...row);
   el.rowHeights.splice(a, 0, borrowSize(el.rowHeights, a));
   el.rowHeightModes?.splice(a, 0, "fixed");
+
+  /*
+    明细行声明跟着行号平移。
+    - 在第 a 行**之前**插入，所以原本 ≥ a 的行号全部 +1（`a <= detailRowIndex` 含等于）；
+    - 插在表头块**内部**（a < headerRows）时新行也算表头，于是表头变长。
+      插在表头之后（a === headerRows）则表头不变 —— 这正是"在表头下面加一行"的预期。
+  */
+  if (el.detailRowIndex !== undefined && a <= el.detailRowIndex) el.detailRowIndex += 1;
+  if (el.headerRows !== undefined && a < el.headerRows) el.headerRows += 1;
 }
 
 /** 在第 at 列**之前**插入一列（at === cols 表示追加到末尾） */
@@ -633,6 +684,8 @@ export function insertCol(el: TableElement, at: number): void {
   el.colWidths.splice(a, 0, borrowSize(el.colWidths, a));
   el.colWidths = fitTracks(el.colWidths, total);
   el.colWidthModes?.splice(a, 0, "fixed");
+  // 列映射的长度必须跟 cols 走：新列没有字段（null = 该列不兜底取值）
+  el.columnFields?.splice(a, 0, null);
 }
 
 /** 删除第 at 行。最后一行不允许删（表格不能退化成 0 行） */
@@ -643,6 +696,21 @@ export function removeRow(el: TableElement, at: number): void {
   el.cells.splice(a * el.cols, el.cols);
   el.rowHeights.splice(a, 1);
   el.rowHeightModes?.splice(a, 1);
+
+  /*
+    删掉的正好是明细模板行 → **声明作废**，表退回静态。
+
+    刻意不做"自动挪到相邻一行"：那会让"数据不再展开"变成用户完全看不见的一个变化
+    （表格看上去还是一样，只是预览里不再复制了）。清掉之后右侧面板会立刻显示
+    「明细行：无」，用户能直接看到这件事发生了。
+  */
+  if (el.detailRowIndex !== undefined) {
+    if (el.detailRowIndex === a) el.detailRowIndex = undefined;
+    else if (el.detailRowIndex > a) el.detailRowIndex -= 1;
+  }
+  if (el.headerRows !== undefined && a < el.headerRows) {
+    el.headerRows = Math.max(0, el.headerRows - 1);
+  }
 }
 
 /** 删除第 at 列。最后一列不允许删 */
@@ -661,6 +729,7 @@ export function removeCol(el: TableElement, at: number): void {
   el.cells = next;
   el.colWidths.splice(a, 1);
   el.colWidthModes?.splice(a, 1);
+  el.columnFields?.splice(a, 1);
 }
 
 /** 清空选区内容（保留合并与样式） */

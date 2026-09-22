@@ -129,6 +129,12 @@ colWidthModes?: ("fixed" | "atLeast" | "auto")[];
 
 明确排除 Word 那种"不换行、文字直接溢到相邻空格"的"适应文字"模式：**数据一长就串到隔壁列**，静态期看着能用，数据版必崩。第一期就别做，免得上瘾。
 
+> **现状（v14，2026-09-22）**：这个"三选一"下拉**已从单元格面板移除**。
+> 原因：渲染层从未消费 `cellStyle.overflow` —— `render/style.ts` 里 td 恒为
+> `overflow: hidden`，选「自动换行」还是「超出裁切」渲染结果完全一样，是个**死开关**。
+> 而"长内容怎么办"这件事已由行高自适应（`row-auto-height-design.md` 的 `atLeast`
+> 撑高）正面回答。详见 §9.15。
+
 ### 约束 6：分页只卡"呈现"，不卡"绑定"（但需确认排期）
 
 数据驱动的明细表**必然跨页**（100 条明细不可能塞进一页），跨页需要两个能力：`允许跨页断行` + `表头行每页重复`。
@@ -930,6 +936,37 @@ this.cellEditing = { r: range.r1, c: range.c1 };
 **届时要给明确提示**（如"明细 32 行超出单页容量"），不要静默裁切，否则会被当成绑定 bug 排查。
 
 （数据绑定侧的同步说明见 `docs/data-binding-design.md` §6 与 §9 第 7 条。）
+
+### 9.15 移除「内容溢出」下拉（v14，老板要求）
+
+老板的话：**"单元格的属性里有个内容溢出，把他删了把。"**
+
+**为什么可以直接删**：这个控件是个**死开关**，从来没生效过。
+
+- 类型层：`TableCellStyle.overflow?: "wrap" | "clip" | "shrink"`；
+- UI 层：只暴露两档「自动换行」/「超出裁切」（`shrink` 设计稿里有、UI 没做）；
+- **渲染层：零消费者**。`render/style.ts` 的 `cellTdStyle` 里 `overflow: "hidden"` 是
+  **硬编码**的，td 恒裁切，跟 `cellStyle.overflow` 半点关系没有 —— 选什么都不改变画出来的东西。
+
+**改动**（2 个文件）：
+
+| 文件 | 改动 |
+|---|---|
+| `setting/element/TableCellProperties.vue` | 删掉「填充 & 边距」分组里的「内容溢出」下拉（该分组只剩背景色 + 内边距） |
+| `components/design/types.ts` | 删 `CellOverflow` 类型与 `TableCellStyle.overflow` 字段 |
+
+**存量数据**：老模板里若已存过 `style.overflow`（用户在死开关上选过的值），**保留无害** ——
+类型层已不再声明它、渲染层从来没读过它，属于"无人消费的遗留键"。
+刻意**不**在 `normalizeTable` 里做删除迁移：那是热路径，而 `delete` 一个从未生效的键收益为零。
+
+**为什么现在删而不是补实现**："长内容放不下怎么办"这件事，现在由**行高自适应**正面回答了
+—— `atLeast` 行按内容自然高撑开、分页器按真实行高换页（见 `row-auto-height-design.md`）。
+"自动换行 vs 裁切"这个二选一已经没有意义：内容不裁、行自己涨。少一个控件，
+少一份"看着能调、实际不生效"的困惑。
+
+**验证**：check-templates 126 零错、eslint 0、vite 编译两模块 200、全仓
+`内容溢出 / CellOverflow / cell-overflow / style?.overflow` 零残留。
+需老板手点：单元格面板「填充 & 边距」里应只剩**背景色 + 内边距**两项。
 
 
 

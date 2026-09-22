@@ -50,7 +50,7 @@
       <Button variant="outline" size="icon">
         <Moon />
       </Button>
-      <Button variant="outline"> 预览 </Button>
+      <Button variant="outline" class="cursor-pointer" @click="openPreview"> 预览 </Button>
       <Button><ArrowDownToLine /> 导出 </Button>
     </div>
   </header>
@@ -68,13 +68,28 @@ import {
 import { Button } from "@/components/ui/button";
 import { Redo, Undo, Moon, ArrowDownToLine } from "@lucide/vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
+import { useRoute, useRouter } from "vue-router";
 
 import { ref } from "vue";
 
 const designState = useDesignStore();
+const route = useRoute();
+const router = useRouter();
 
 const disablePrevHistory = ref(true);
 const disableNextHistory = ref(false);
+
+/**
+ * 打开预览。
+ *
+ * 把当前路由的 `:id` 原样带过去（而不是从 store 里读模板 id）：
+ * 预览是**另一个视图**，它的入参就该来自 URL —— 于是刷新、分享链接、
+ * 将来浏览器的前进后退全部自然可用，不需要额外维护一份"当前模板 id"。
+ */
+function openPreview() {
+  const id = route.params.id;
+  router.push({ name: "Preview", params: { id: typeof id === "string" ? id : "draft" } });
+}
 </script>
 
 <style scoped></style>

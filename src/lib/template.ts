@@ -109,6 +109,36 @@ export function splitTokenKey(key: string): { dataSetName?: string; field: strin
   return { dataSetName: key.slice(0, i).trim(), field: key.slice(i + 1).trim() };
 }
 
+/**
+ * 构造一个字段占位符字面量 —— **全仓唯一构造点**。
+ *
+ * 自查：`grep -rn '`{\${' src` 只应命中本文件这一行。
+ * 任何地方要拼出一个 `{...}`，都得走这里，因为有两个方向的调用方必须给出同一个拼法：
+ *
+ * - **写入侧**：设计面板把字段拖进元素，拼出来的字面量会被存进 `content` / `src`，
+ *   带数据集前缀（`{订单明细.品名}`），这样模板出现第二份数据时不用回头重写。
+ * - **读取侧**：列映射（`columnFields`）存的是用户手输的字段声明，
+ *   要交给 `renderTemplate` 解析就得先规范化成同样的形态 ——
+ *   此时数据集已由元素的 `binding.dataSetId` 唯一确定，因此不加前缀。
+ *
+ * 两处共用一份拼法，"写进去的"与"读出来的"才必然对得上。
+ *
+ * 输入容忍两种写法（列映射 UI 两种都得收）：
+ * - 裸字段名 `品名` / `address.city` → `{品名}`
+ * - 已经是整段占位符 `{订单明细.品名}` → 原样返回
+ *
+ * 第二条容忍不是客气：不做的话 `{{订单明细.品名}}` 这种双层花括号
+ * 会让整段解析失败，界面上显示的是花括号原文而不是值。
+ *
+ * @param field 字段声明（裸名或整段占位符）
+ * @param dataSetName 数据集标识符（面板上的「标识符」，已由 `isValidDataSetName`
+ *   保证不含空格 / 点号 / 花括号 / `$`）。省略 → `{字段}`
+ */
+export function makeFieldToken(field: string, dataSetName?: string): string {
+  if (hasPlaceholder(field)) return field;
+  return dataSetName ? `{${dataSetName}.${field}}` : `{${field}}`;
+}
+
 function stringify(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") {

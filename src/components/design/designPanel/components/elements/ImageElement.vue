@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { hasPlaceholder } from "@/lib/template";
-import { FIELD_MIME } from "@/components/design/data/model";
+import { FIELD_MIME, getDraggingField } from "@/components/design/data/model";
 import type { ImageElement } from "@/components/design/types";
 import { useDataBinding } from "@/components/design/data/useDataBinding";
 
@@ -47,13 +47,17 @@ const displaySrc = computed(() => (isFieldSource.value ? "" : (props.element.src
 /* ---------- 字段拖入 ---------- */
 
 function onFieldDragOver(e: DragEvent) {
-  if (!e.dataTransfer?.types.includes(FIELD_MIME)) return;
+  // 双通道门卫：模块变量有载荷就直接放行（dataTransfer 的 types 可能被扩展清空，
+  // 见 model.ts draggingField）；外部拖入的文本两者皆无，照旧不接。
+  if (!getDraggingField() && !e.dataTransfer?.types.includes(FIELD_MIME)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
 }
 
 function onFieldDrop(e: DragEvent) {
-  const raw = e.dataTransfer?.getData(FIELD_MIME);
+  // 主通道优先，dataTransfer 兜底（跨窗口拖入字段时模块变量为空）
+  const dragging = getDraggingField();
+  const raw = dragging ? JSON.stringify(dragging) : e.dataTransfer?.getData(FIELD_MIME);
   if (!raw) return;
   e.preventDefault();
   e.stopPropagation();

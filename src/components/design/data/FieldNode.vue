@@ -55,7 +55,8 @@
 import { computed, ref } from "vue";
 import type { Component } from "vue";
 import { Braces, Calendar, ChevronRight, Clock, GripVertical, Hash, ToggleLeft, Type } from "@lucide/vue";
-import { FIELD_MIME } from "./model";
+import { FIELD_MIME, setDraggingField } from "./model";
+import { setDraggingMaterialId } from "@/components/design/material/materials";
 import { useDataBinding } from "./useDataBinding";
 import type { DataSetField, DataSetFieldType } from "./types";
 
@@ -119,6 +120,10 @@ const typeLabel = (type: DataSetFieldType) => TYPE_LABELS[type] ?? type;
  * （素材台那条"一拖就卡死"的坑，同一个根因）。
  */
 function onDragStart(e: DragEvent) {
+  // 双通道：模块变量是主通道（见 model.ts draggingField 的说明），dataTransfer 兜底。
+  // 同时清掉素材标记 —— 每次 dragstart 都重设两个通道，防止上次残留被误读。
+  setDraggingField({ dataSetId: props.dataSetId, field: props.field.name });
+  setDraggingMaterialId(null);
   if (!e.dataTransfer) return;
   e.dataTransfer.effectAllowed = "copy";
   const payload = JSON.stringify({ dataSetId: props.dataSetId, field: props.field.name });

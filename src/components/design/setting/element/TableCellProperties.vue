@@ -289,21 +289,6 @@
                 </NumberFieldContent>
               </NumberField>
             </div>
-            <div class="space-y-1.5">
-              <Label for="cell-overflow">内容溢出</Label>
-              <Select
-                :model-value="common((c) => c.style?.overflow) ?? 'wrap'"
-                @update:model-value="setStyleValue('overflow', String($event))"
-              >
-                <SelectTrigger id="cell-overflow" class="w-full"
-                  ><SelectValue placeholder="自动换行"
-                /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="wrap">自动换行</SelectItem>
-                  <SelectItem value="clip">超出裁切</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
         </AccordionContent>
       </AccordionItem>

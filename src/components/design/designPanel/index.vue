@@ -115,7 +115,7 @@ import CanvasContextMenu from "./components/CanvasContextMenu.vue";
 import { useDesignStore, SCALE_MIN, SCALE_MAX } from "@/store/modules/design";
 import { mmToPx, pxToMm } from "@/lib/utils";
 import type { GuideDir } from "@/components/design/types";
-import { MATERIAL_MIME, findMaterial } from "@/components/design/material/materials";
+import { MATERIAL_MIME, findMaterial, getDraggingMaterialId } from "@/components/design/material/materials";
 
 const designState = useDesignStore();
 
@@ -268,9 +268,17 @@ function onDrop(e: DragEvent) {
   e.preventDefault();
   isDragOver.value = false;
 
-  // 自定义 MIME 优先，text/plain 兜底；两者都不是素材 id 就忽略（比如从外部拖入的文本）
-  const data = e.dataTransfer;
-  const id = data?.getData(MATERIAL_MIME) || data?.getData("text/plain");
+  /*
+   * 素材 id 读取顺序：模块变量优先（主通道，见 materials.ts draggingMaterialId ——
+   * dataTransfer 会被某些浏览器扩展在 dragstart 后清空），dataTransfer 兜底
+   * （覆盖跨窗口拖入的极端情形）。字段拖拽落到纸上时两个通道都拿不到素材 id，
+   * findMaterial 失败静默忽略 —— 与原行为一致。
+   */
+  const id =
+    getDraggingMaterialId() ||
+    e.dataTransfer?.getData(MATERIAL_MIME) ||
+    e.dataTransfer?.getData("text/plain") ||
+    "";
   if (!id) return;
   const m = findMaterial(id);
   if (!m) return;

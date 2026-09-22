@@ -139,19 +139,11 @@ export interface TableCellContent {
   objectFit?: "fill" | "contain" | "cover" | "none";
 }
 
-/**
- * 内容溢出策略。
- * 刻意**没有** Word 的"适应文字"（溢到相邻空格）—— 数据一长就串列，
- * 静态期看着能用、数据版必崩，第一期就不做，免得用上瘾。
- */
-export type CellOverflow = "wrap" | "clip" | "shrink";
-
 export interface TableCellStyle {
   backgroundColor?: string;
   /** 内边距 mm */
   padding?: number;
   borders?: CellBorders;
-  overflow?: CellOverflow;
 }
 
 export interface TableCell {
@@ -187,7 +179,55 @@ export interface TableElement extends BaseElement {
   rowHeightModes?: SizeMode[];
   /** 行优先扁平数组，长度 = rows × cols */
   cells: TableCell[];
+  /**
+   * 这张表允许被分页切开吗。默认 **true**。
+   *
+   * 语义是"能不能在行边界处断开"：关掉之后整表退化成不可拆块，
+   * 放不下就整块顺延到下一页（表现是页底留一块空洞），
+   * 而不会出现"3 行在这页、2 行在下页"的难看切法。
+   * 真实需求是小表格不想被劈成两页 —— 所以给开关，而不是删掉这个字段。
+   */
   allowBreakAcrossPages?: boolean;
+
+  /* ============================================================
+     明细行声明（渲染态）
+     ------------------------------------------------------------
+     这三个字段服务的是**渲染态（预览 / 导出 / 打印）**，画布不消费它们，
+     画布只渲一个轻量可见反馈（行号槽上的明细行标记）。
+
+     为什么它属于文档数据而不是预览的局部状态：它描述的是"这张表怎么吃数据"，
+     与"取到了几行数据"无关。存成局部状态的话，关掉预览再打开、
+     或者将来导出，都得重新声明一遍。
+  ============================================================ */
+
+  /**
+   * 明细模板行：**哪一行**按数据行数纵向复制。`undefined` = 整表静态（不展开）。
+   *
+   * 只声明"哪一行"，不声明"复制几份" —— 复制几份由数据决定。
+   * 这是它与 `detailRowsPerPage`（套打的行数控制）的区别：后者要的是"每页固定 N 行"，
+   * 属于另一个功能。
+   */
+  detailRowIndex?: number;
+  /**
+   * 前 N 行是表头：**不展开**，且分页时在每一片的头部重复。
+   *
+   * 取值必须 ≤ `detailRowIndex`（表头只能在明细行之前）。面板的下拉本来就不会
+   * 给出越界选项，但模板 JSON 可能被手工改过，所以 `expand.ts` 与 `normalizeTable`
+   * 都会再夹一次。
+   */
+  headerRows?: number;
+  /**
+   * 列 → 字段映射（长度 = cols）。**只在单元格为空时兜底取值**。
+   *
+   * 与"行 → 记录"是两个正交的映射，必须同时成立才有意义：
+   * 明细行决定了"这一行取第几条记录"，列映射决定了"这一格取该记录的哪个字段"。
+   * 只做一半的话，明细行复制出来的是 N 行**完全相同**的内容 —— 视觉噪音。
+   *
+   * 两条硬约束：
+   * 1. **绝不回写单元格内容**。它只是取值兜底，单元格里写了 `{品名}` 时以单元格为准；
+   * 2. 长度必须跟着 `cols` 走（`insertCol` / `removeCol` 负责维护）。
+   */
+  columnFields?: (string | null)[];
   /** 表格默认单元格边框与内边距：新格子与"缺省边"的回落值 */
   cellStyle?: {
     borderColor?: string;

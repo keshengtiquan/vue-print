@@ -89,6 +89,29 @@ export const materials: MaterialDef[] = [
  */
 export const MATERIAL_MIME = "component-type";
 
+/*
+ * 【素材 id 的主通道】—— dataTransfer 之外的进程内备份。
+ *
+ * 真机观测（2026-09-22，老板环境）：dragstart 时 setData 成功、types =
+ * ["component-type"]，到 dragenter/drop 时 types 变成 []——有浏览器扩展在
+ * dragstart 之后清空 drag data store。而规范规定 data store 只在 dragstart
+ * 阶段可写，页面代码事后**无法自救**，所以素材 id 另走一份模块变量：
+ * dragstart 写入，drop **优先读它**，dataTransfer 只做兜底（跨窗口拖素材
+ * 不在需求内，放弃之）。
+ *
+ * 不用 ref()：它不是视图状态，纯模块变量即可。
+ */
+let draggingMaterialId: string | null = null;
+
+/** dragstart 时写入；非素材拖拽（如字段拖拽）必须显式写 null 防止上次残留被误读 */
+export function setDraggingMaterialId(id: string | null): void {
+  draggingMaterialId = id;
+}
+
+export function getDraggingMaterialId(): string | null {
+  return draggingMaterialId;
+}
+
 /** 按 id 回查素材定义；drop 端用 */
 export function findMaterial(id: string): MaterialDef | null {
   return materials.find((m) => m.id === id) ?? null;

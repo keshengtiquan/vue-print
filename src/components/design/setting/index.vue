@@ -26,6 +26,10 @@
             <AccordionTrigger>页边距</AccordionTrigger>
             <AccordionContent> <MarginSection /> </AccordionContent>
           </AccordionItem>
+          <AccordionItem value="item-3">
+            <AccordionTrigger>页码</AccordionTrigger>
+            <AccordionContent> <PageNumberSection /> </AccordionContent>
+          </AccordionItem>
         </Accordion>
 
         <div
@@ -49,6 +53,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PagePreviewSection from "./element/PagePreviewSection.vue";
 import PaperSizeSection from "./element/PaperSizeSection.vue";
 import MarginSection from "./element/MarginSection.vue";
+import PageNumberSection from "./element/PageNumberSection.vue";
 import ElementProperties from "./element/ElementProperties.vue";
 import {
   Accordion,

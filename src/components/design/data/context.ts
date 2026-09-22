@@ -133,14 +133,21 @@ export function buildRowContext(row: DataRow | undefined, options: BuildContextO
 /**
  * 没有任何数据时的上下文（元素还没绑数据集，或数据集还没测试取过数）。
  *
- * `onMissing: "keep"` 固定 —— 缺值时应原样显示 `{品名}`，而不是变成一片空白：
+ * `onMissing` 默认 `"keep"` —— 缺值时应原样显示 `{品名}`，而不是变成一片空白：
  * 空白分不清"没数据"和"没绑上"，占位符原文至少还告诉用户"这里引用的是哪个字段"。
  * （这条口径原本是为面板的取数预览定的；预览已移除，但它本身就是 `buildEmptyContext`
  * 的语义，与界面上有没有预览无关。）
+ *
+ * 但**渲染态必须能覆盖它**：预览 / 打印是"以真值出图"，把 `{品名}` 打到纸上
+ * 比打一片空白糟糕得多。所以这里开了第二个参数而不是让调用方自己造一个 ctx ——
+ * "什么情况下算缺值、缺值给什么"只该有一处定义（见 `lib/template.ts` 的文件头）。
  */
-export function buildEmptyContext(sys?: Record<string, unknown>): TemplateContext {
+export function buildEmptyContext(
+  sys?: Record<string, unknown>,
+  onMissing: "keep" | "blank" = "keep"
+): TemplateContext {
   return {
-    onMissing: "keep",
+    onMissing,
     get: () => undefined,
     getSys: (name: string) => sys?.[name]
   };

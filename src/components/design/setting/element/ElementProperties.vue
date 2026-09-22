@@ -175,10 +175,18 @@
         <AccordionTrigger>数据 &amp; 行为</AccordionTrigger>
         <AccordionContent class="px-1">
           <div class="space-y-2.5 pt-1">
+            <!--
+              这两个开关的文案在预览功能落地时补齐了（docs/preview-design.md §0 第 5 条）。
+
+              在此之前它们"有开关、零消费"：面板上摆着，渲染链路全仓 0 处读取 ——
+              按 §11.16 的判据（"会不会让用户以为某件事生效了"）本属于该删的一类。
+              预览是它们的第一个真实消费者，于是本轮让它们生效，文案也**必须**跟着说清楚
+              "什么时候生效"：写"在每一页都绘制"而实际只有预览认它，仍然是在骗人。
+            -->
             <div class="flex items-center justify-between gap-3">
               <div>
                 <p class="text-sm">每页重复</p>
-                <p class="text-muted-foreground text-xs">在每一页都绘制此元素</p>
+                <p class="text-muted-foreground text-xs">预览 / 打印时每页同一位置绘制</p>
               </div>
               <Switch
                 class="cursor-pointer"
@@ -190,7 +198,7 @@
             <div class="flex items-center justify-between gap-3">
               <div>
                 <p class="text-sm">是否打印</p>
-                <p class="text-muted-foreground text-xs">关闭后仅在编辑画布中保留</p>
+                <p class="text-muted-foreground text-xs">关闭后仅在编辑画布中保留，预览里不显示</p>
               </div>
               <Switch
                 class="cursor-pointer"

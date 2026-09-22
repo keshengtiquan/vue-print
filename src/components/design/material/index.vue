@@ -58,7 +58,8 @@ import { ref } from "vue";
 import { Boxes, ChevronsLeft, Database } from "@lucide/vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DataPanel from "@/components/design/data/DataPanel.vue";
-import { materials, MATERIAL_MIME, type MaterialDef } from "./materials";
+import { setDraggingField } from "@/components/design/data/model";
+import { materials, MATERIAL_MIME, setDraggingMaterialId, type MaterialDef } from "./materials";
 
 /** 左侧栏页签。默认停在素材 —— 绝大多数时间用户是在排版，不是在配数据 */
 const activeTab = ref("material");
@@ -72,6 +73,11 @@ const activeTab = ref("material");
  * 拖拽期间的视觉反馈交给浏览器自带的 drag image 快照，足够用。
  */
 function onDragStart(e: DragEvent, m: MaterialDef) {
+  // 双通道：模块变量是主通道（见 materials.ts draggingMaterialId 的说明），
+  // dataTransfer 只兜底。同时清掉字段标记 —— 每次 dragstart 都重设两个通道，
+  // 否则上次拖拽的残留会在这次 drop 被误读。
+  setDraggingMaterialId(m.id);
+  setDraggingField(null);
   if (!e.dataTransfer) return;
   // copy 语义：拖到画布是"复制一份"，素材台里的源不动
   e.dataTransfer.effectAllowed = "copy";

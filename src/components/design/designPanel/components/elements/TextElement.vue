@@ -44,7 +44,8 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import { useDesignStore } from "@/store/modules/design";
 import { mmToPx } from "@/lib/utils";
-import { FIELD_MIME } from "@/components/design/data/model";
+import { FIELD_MIME, getDraggingField } from "@/components/design/data/model";
+import { textContainerStyle, textContentStyle } from "@/components/design/render/style";
 import type { TextElement } from "@/components/design/types";
 import { useDataBinding } from "@/components/design/data/useDataBinding";
 
@@ -86,13 +87,17 @@ const displayContent = computed(() => props.element.content ?? "");
  * 于是"把图片素材拖到文本上"会变成"往文本里插占位符"。
  */
 function onFieldDragOver(e: DragEvent) {
-  if (!e.dataTransfer?.types.includes(FIELD_MIME)) return;
+  // 双通道门卫：模块变量有载荷就直接放行（dataTransfer 的 types 可能被扩展清空，
+  // 见 model.ts draggingField）；外部拖入的文本两者皆无，照旧不接。
+  if (!getDraggingField() && !e.dataTransfer?.types.includes(FIELD_MIME)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
 }
 
 function onFieldDrop(e: DragEvent) {
-  const raw = e.dataTransfer?.getData(FIELD_MIME);
+  // 主通道优先，dataTransfer 兜底（跨窗口拖入字段时模块变量为空）
+  const dragging = getDraggingField();
+  const raw = dragging ? JSON.stringify(dragging) : e.dataTransfer?.getData(FIELD_MIME);
   if (!raw) return;
   e.preventDefault();
   e.stopPropagation();
@@ -107,46 +112,18 @@ function onFieldDrop(e: DragEvent) {
 }
 
 const pxPerMm = computed(() => mmToPx(1) * designState.scale);
-const verticalAlignment = computed(() =>
-  props.element.verticalAlign === "middle"
-    ? "center"
-    : props.element.verticalAlign === "bottom"
-      ? "flex-end"
-      : "flex-start"
-);
 
-const horizontalAlignment = computed(() =>
-  props.element.textAlign === "center"
-    ? "center"
-    : props.element.textAlign === "right"
-      ? "flex-end"
-      : "flex-start"
-);
+/*
+  样式计算全部走 `render/style.ts` 的共享纯函数，不再在这里就地写。
 
-const containerStyle = computed<CSSProperties>(() => ({
-  backgroundColor: props.element.backgroundColor,
-  borderColor: props.element.borderColor,
-  borderStyle: props.element.borderStyle,
-  borderWidth: `${(props.element.borderWidth ?? 0) * pxPerMm.value}px`,
-  boxSizing: "border-box",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: verticalAlignment.value,
-  // 竖排文字的左右位置属于 flex 交叉轴，text-align 无法控制它。
-  alignItems: props.element.layout === "vertical" ? horizontalAlignment.value : undefined
-}));
-
-const textStyle = computed<CSSProperties>(() => ({
-  color: props.element.color,
-  fontFamily: props.element.fontFamily,
-  fontSize: `${(props.element.fontSize ?? 4) * pxPerMm.value}px`,
-  fontWeight: props.element.fontWeight,
-  textAlign: props.element.textAlign,
-  writingMode: props.element.layout === "vertical" ? "vertical-rl" : "horizontal-tb",
-  width: props.element.layout === "vertical" ? undefined : "100%",
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word"
-}));
+  这不是为了少几行代码，而是预览功能的**结构性要求**（`docs/preview-design.md` §5.2）：
+  预览渲染组件要画的是同一个元素、同一组字号间距，只有缩放因子不同。
+  两边各写一份的话，"设计态调完字号、预览里忘了再调一遍"是必然发生的，
+  而它的表现就是"预览里看着对、打出来错位"—— 所有设计器项目最经典的那类 bug。
+  `pxPerMm` 是这里的**唯一**输入差异（设计态带 design.scale）。
+*/
+const containerStyle = computed(() => textContainerStyle(props.element, pxPerMm.value));
+const textStyle = computed(() => textContentStyle(props.element, pxPerMm.value));
 
 const isEditing = computed(() => designState.editingId === props.element.id);
 

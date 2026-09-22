@@ -142,14 +142,32 @@
       >
         {{ colLabel(handle.index) }}
       </div>
+      <!--
+        行号槽的明细模板行标记：**只落在行号槽上**。
+
+        为什么只能在这儿（表格文档 §1.5 约束 2 的同一条精神）：
+        单元格内容区承载排版，给它加视觉标记会改字宽、破坏对齐测量；
+        而行号槽本来就不承载内容，往上面加东西不影响任何几何。
+
+        做成 2px 的左侧色条而不是改数字（≡3）：
+        行号槽宽 18px、固定显示行号，加字符会把行号挤到两位/三位数时溢出，
+        而色条零宽度代价、和数字并排一眼就能认出是哪一行。
+        另配 title 说明它是什么意思 —— 光有一个色点，用户猜不出这是干什么的。
+      -->
       <div
         v-for="handle in rowHandles"
         :key="`rh-${handle.index}`"
         class="absolute flex cursor-pointer items-center justify-center overflow-hidden text-[10px] leading-none select-none"
-        :class="
+        :class="[
           isRowSelected(handle.index)
             ? 'bg-primary/60 text-primary-foreground'
-            : 'bg-primary/15 text-primary hover:bg-primary/35'
+            : 'bg-primary/15 text-primary hover:bg-primary/35',
+          handle.index === element.detailRowIndex ? 'border-primary border-l-2' : ''
+        ]"
+        :title="
+          handle.index === element.detailRowIndex
+            ? '明细模板行：预览 / 打印时这一行会按数据行数纵向复制'
+            : undefined
         "
         :style="handle.style"
         @pointerdown="onRowHandleDown(handle.index, $event)"
@@ -166,11 +184,9 @@
 import { computed, nextTick, onBeforeMount, onUnmounted, ref, watch } from "vue";
 import type { CSSProperties } from "vue";
 import { useDesignStore } from "@/store/modules/design";
-import { mmToPx, ptToMm } from "@/lib/utils";
-import type { TableCell, TableCellContent, TableElement } from "@/components/design/types";
+import { mmToPx } from "@/lib/utils";
+import type { TableCellContent, TableElement } from "@/components/design/types";
 import {
-  BORDER_SIDES,
-  borderVisible,
   cellAt,
   colLabel,
   colOffsets,
@@ -179,7 +195,6 @@ import {
   expandRange,
   gridCells,
   normalizeRange,
-  ownBorderEdge,
   rangeContains,
   rangeOfPoint,
   resizeTrackPair,
@@ -187,22 +202,21 @@ import {
   rowRange,
   segmentAt
 } from "@/components/design/table/model";
+import {
+  cellContentBoxStyle,
+  cellTdStyle,
+  cellTextStyle,
+  tableBoxStyle
+} from "@/components/design/render/style";
 import { useDrag } from "../../composables/useDrag";
 import { useSnapFeedback, type SnapKey } from "../../composables/useSnapFeedback";
 import { snapEdge, snapTargets, snapTolerance } from "../../composables/useSnapTargets";
-import { FIELD_MIME } from "@/components/design/data/model";
+import { FIELD_MIME, getDraggingField } from "@/components/design/data/model";
 import { useDataBinding } from "@/components/design/data/useDataBinding";
 
 const store = useDesignStore();
 const ops = useDataBinding();
 const props = defineProps<{ element: TableElement }>();
-
-/**
- * 单元格默认字号。取"五号"（10.5pt）而不是随手定一个毫米数 ——
- * 属性面板的字号下拉是 pt 档位，基准对不上的话，用户什么都不改也会看到
- * 显示值与实际值差一档。
- */
-const DEFAULT_CELL_FONT_SIZE = ptToMm(10.5);
 
 const rootRef = ref<HTMLElement | null>(null);
 const pxPerMm = computed(() => mmToPx(1) * store.scale);
@@ -238,47 +252,11 @@ interface RowView {
 /**
  * 表格级样式。
  *
- * `width` 用 element.width（≡ Σ colWidths，由 syncTableGeometry 保证），
- * 与 colgroup 里各列宽度之和一致，于是"表格盒宽 ≡ 元素框宽"，浮层不会错位。
- * 高度刻意不设：由各行 tr 的 height 自然累加得出，免得 table 的 height 反过来
- * 参与行高的分配（那是"行数由内容决定"这条不变量最怕的事）。
+ * 与 `cellTdStyle` / `cellContentBoxStyle` / `cellTextStyle` 一样，
+ * 计算全部在 `render/style.ts` 里 —— 预览渲染组件调的是同一批函数，
+ * 两边只差一个 `pxPerMm`（原因见那个文件的文件头）。
  */
-const tableStyle = computed<CSSProperties>(() => ({
-  tableLayout: "fixed",
-  borderCollapse: "collapse",
-  width: `${props.element.width * pxPerMm.value}px`
-}));
-
-/**
- * 某格的 td 样式。
- *
- * 只设自己的四边、不做任何冲突裁决 —— 共享边由 `border-collapse: collapse` 合并，
- * 两个方向的解必然是同一个值（浏览器只画一次），不存在"各画各的"。
- * 边距不落在 td 的 padding 上，而是给内容层（内容层绝对定位铺满整格）。
- */
-function cellTdStyle(el: TableElement, r: number, c: number, cell: TableCell): CSSProperties {
-  const p = pxPerMm.value;
-  const style: CSSProperties = {
-    // relative 是内容层 absolute inset-0 的定位锚点；td 上原是内容流，
-    // 内容一旦绝对定位，tr 的 height 才能成为精确值而不是最小高度
-    position: "relative",
-    overflow: "hidden",
-    padding: 0,
-    verticalAlign: "top"
-  };
-  if (cell.style?.backgroundColor) style.backgroundColor = cell.style.backgroundColor;
-  for (const side of BORDER_SIDES) {
-    const edge = ownBorderEdge(el, cell, side);
-    if (!borderVisible(edge)) continue;
-    // 下限 0.5px：0.1mm 在屏幕上不到半像素会被浏览器抹掉，用户以为没设成功
-    const line = `${Math.max(0.5, edge.width * p)}px ${edge.style} ${edge.color}`;
-    if (side === "top") style.borderTop = line;
-    else if (side === "right") style.borderRight = line;
-    else if (side === "bottom") style.borderBottom = line;
-    else style.borderLeft = line;
-  }
-  return style;
-}
+const tableStyle = computed<CSSProperties>(() => tableBoxStyle(props.element, pxPerMm.value));
 
 /**
  * 一屏要渲染的全部信息，一次算完并按行分组 ——
@@ -298,39 +276,6 @@ const rowViews = computed<RowView[]>(() => {
     const content = cell.content;
     const pad = cell.style?.padding ?? defaultPadding;
 
-    const contentBox: CSSProperties = {
-      padding: `${pad * p}px`,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent:
-        content?.verticalAlign === "middle"
-          ? "center"
-          : content?.verticalAlign === "bottom"
-            ? "flex-end"
-            : "flex-start",
-      // 竖排文字的左右位置属于 flex 交叉轴，text-align 管不到它（与 TextElement 同款处理）
-      alignItems:
-        content?.layout === "vertical"
-          ? content?.textAlign === "center"
-            ? "center"
-            : content?.textAlign === "right"
-              ? "flex-end"
-              : "flex-start"
-          : undefined
-    };
-
-    const text: CSSProperties = {
-      color: content?.color,
-      fontFamily: content?.fontFamily,
-      fontSize: `${(content?.fontSize ?? DEFAULT_CELL_FONT_SIZE) * p}px`,
-      fontWeight: content?.fontWeight,
-      textAlign: content?.textAlign,
-      writingMode: content?.layout === "vertical" ? "vertical-rl" : "horizontal-tb",
-      width: content?.layout === "vertical" ? undefined : "100%",
-      whiteSpace: "pre-wrap",
-      wordBreak: "break-word"
-    };
-
     const list = byRow.get(ref.r) ?? [];
     list.push({
       key: `${ref.r}-${ref.c}`,
@@ -338,9 +283,9 @@ const rowViews = computed<RowView[]>(() => {
       c: ref.c,
       colspan: Math.max(1, cell.colspan),
       rowspan: Math.max(1, cell.rowspan),
-      td: cellTdStyle(el, ref.r, ref.c, cell),
-      contentBox,
-      text,
+      td: cellTdStyle(el, cell, p),
+      contentBox: cellContentBoxStyle(content, pad, p),
+      text: cellTextStyle(content, p),
       content,
       display: ""
     });
@@ -875,13 +820,17 @@ function onCellContextMenu(view: CellView) {
  * 与画布同款：这里**不写任何响应式状态** —— dragover 每帧都触发。
  */
 function onCellDragOver(e: DragEvent) {
-  if (!e.dataTransfer?.types.includes(FIELD_MIME)) return;
+  // 双通道门卫：模块变量有载荷就直接放行（dataTransfer 的 types 可能被扩展清空，
+  // 见 model.ts draggingField）；素材/外部拖入两者皆无，照旧不接（落点归画布）。
+  if (!getDraggingField() && !e.dataTransfer?.types.includes(FIELD_MIME)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
 }
 
 function onCellDrop(e: DragEvent) {
-  const raw = e.dataTransfer?.getData(FIELD_MIME);
+  // 主通道优先，dataTransfer 兜底（跨窗口拖入字段时模块变量为空）
+  const dragging = getDraggingField();
+  const raw = dragging ? JSON.stringify(dragging) : e.dataTransfer?.getData(FIELD_MIME);
   if (!raw) return;
   e.preventDefault();
   // 别让画布再处理一次 —— 否则会同时"插进单元格"和"尝试放置素材"

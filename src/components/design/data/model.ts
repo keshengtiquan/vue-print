@@ -57,6 +57,31 @@ const MAX_FIELD_DEPTH = 4;
  */
 export const FIELD_MIME = "dataset-field";
 
+/*
+ * 【字段载荷的主通道】—— 与 materials.ts 的 draggingMaterialId 同一坑、同一解：
+ * 某些浏览器扩展会在 dragstart 后清空 dataTransfer（types 变 []），页面代码
+ * 在 dragstart 之后无权写 data store，无法自救。字段载荷另存一份模块变量，
+ * 三个消费点（文本 / 表格 / 图片元素）的 dragover 门卫与 drop 读取都先走它，
+ * dataTransfer 只做跨窗口拖入的兜底。
+ */
+export interface DraggingFieldPayload {
+  /** 字段所属数据集 —— 拖一下自动绑好，不用再去面板选数据集 */
+  dataSetId: string;
+  /** 字段名（不带花括号的裸名） */
+  field: string;
+}
+
+let draggingField: DraggingFieldPayload | null = null;
+
+/** dragstart 时写入；非字段拖拽（如素材拖拽）必须显式写 null 防止上次残留被误读 */
+export function setDraggingField(p: DraggingFieldPayload | null): void {
+  draggingField = p;
+}
+
+export function getDraggingField(): DraggingFieldPayload | null {
+  return draggingField;
+}
+
 /* ============================================================
    取值路径（resultPath）
 ============================================================ */

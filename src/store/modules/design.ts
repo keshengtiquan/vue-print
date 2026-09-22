@@ -53,6 +53,17 @@ export const useDesignStore = defineStore("design", {
     paper: { widthMm: 210, heightMm: 297 },
     /** 页面页边距（mm，四向独立） */
     marginMm: { top: 10, right: 10, bottom: 10, left: 10 },
+    /**
+     * 页码（页脚）配置。**文档数据**，跟随模板持久化，不是视图偏好。
+     *
+     * - `enabled`：是否在每页底部页边距内显示页码；
+     * - `template`：页码文本模板，支持系统变量占位符
+     *   `{$pageIndex}`（当前页码，1 起）/ `{$pageCount}`（总页数）。
+     */
+    pageNumber: {
+      enabled: true,
+      template: "第 {$pageIndex} 页 / 共 {$pageCount} 页"
+    },
     /** 画布上是否显示页边距辅助线（视图偏好，不参与打印输出） */
     showMarginGuides: true,
     /** 画布纸张上是否显示设计网格（视图偏好，不参与打印输出） */
