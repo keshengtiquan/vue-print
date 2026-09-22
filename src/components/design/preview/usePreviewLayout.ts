@@ -213,7 +213,9 @@ export function usePreviewLayout() {
   const view = computed<PreviewView>(() => {
     const pages = layout.value.pages;
     const pageCount = pages.length;
-    const repeatedIds = layout.value.repeatedIds;
+    // 每页重复元素的**落位**由分页器给出（§3.2）：页眉式 = 设计坐标，页脚式 = 贴内容区底。
+    // 渲染层不再读 el.y —— "每页画在哪"是分页语义，只此一处。
+    const repeatedItems = layout.value.repeated;
 
     const pageViews = pages.map((page) => {
       // 页码只有分页器知道，所以 sys 在这里逐页现算并注入（§3.7）
@@ -231,11 +233,10 @@ export function usePreviewLayout() {
         }));
       }
 
-      // 每页重复的元素：**页内位置 = 设计态坐标原样**（§3.2），所以这里直接用 el.y
-      for (const id of repeatedIds) {
-        const el = design.getElement(id);
+      for (const rep of repeatedItems) {
+        const el = design.getElement(rep.id);
         if (!el) continue;
-        items.push(toItemView(el, el.y, el.height, sys, {}));
+        items.push(toItemView(el, rep.y, el.height, sys, {}));
       }
 
       /*

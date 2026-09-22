@@ -127,8 +127,15 @@ export type LayoutWarning =
 export interface PreviewLayout {
   pages: LayoutPage[];
   warnings: LayoutWarning[];
-  /** 每页重复的元素 id（不进分页流，每页按设计坐标画一次，§3.2） */
+  /** 每页重复的元素 id（不进分页流，每页画一次，§3.2） */
   repeatedIds: string[];
+  /**
+   * 每页重复元素的落位：每页固定的**纸张绝对 y**。
+   *
+   * 页眉式（完全在流式内容之上）= 设计坐标原样；页脚式（上方有流式内容）
+   * = 贴内容区底（`s + H - height`）。渲染层直接用这个 y，别再读 `el.y`。
+   */
+  repeated: Array<{ id: string; y: number }>;
   /** 被隐藏（printable === false）的元素 id */
   hiddenIds: string[];
 }

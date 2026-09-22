@@ -64,8 +64,16 @@ export interface PaginateInput {
   margin: MarginBox;
   /** 流序已排好的块（调用方负责排序：y ↑ → zIndex ↑ → 下标） */
   blocks: FlowBlock[];
-  /** 每页重复的元素 id（不进分页流） */
-  repeatedIds: string[];
+  /**
+   * 每页重复的元素（不进分页流）：id + 纵向几何（纸张绝对 mm）。
+   *
+   * 分页器按它与流式内容的相对位置自动分两种锚定（§3.2）：
+   * - **页眉式**（完全在所有流式内容之上）：每页按设计坐标画；
+   *   顺延页的内容起点让到它底部之下（`f0`）。
+   * - **页脚式**（上方有流式内容）：每页**贴内容区底**画；内容流每页
+   *   都止于它上方（`bottomLimit`）—— 数据表格跨页时，第 1 页与后续页版式一致。
+   */
+  repeated?: Array<{ id: string; top: number; height: number }>;
   /** 被隐藏（printable === false）的元素 id */
   hiddenIds: string[];
   /** 上游已有的告警（隐藏、占位符未取到值等），分页器会在它后面追加自己的 */
@@ -118,12 +126,48 @@ const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
  * - `warnings` 覆盖所有"界面上会看到的异常"。
  */
 export function paginate(input: PaginateInput): PreviewLayout {
-  const { paper, margin, blocks, repeatedIds, hiddenIds } = input;
+  const { paper, margin, blocks, hiddenIds } = input;
   const warnings: LayoutWarning[] = [...(input.warnings ?? [])];
 
   const s = contentTop(margin);
   const H = contentHeight(paper, margin);
   const pages: LayoutPage[] = [];
+
+  const reps = input.repeated ?? [];
+  const repeatedIds = reps.map((r) => r.id);
+
+  /*
+    每页重复元素分两种锚定（判据：与流式内容的相对位置）：
+
+    - **页眉式**（完全在所有流式内容之上）：每页按设计坐标画；
+      顺延页（p > 0）的内容起点 f0 让到它底部之下 —— 不让位的话，
+      第 2 页内容从页顶重排会压过它（2026-09-22 真机 bug）。
+      **f0 只约束 p > 0**：「第 1 页 ≡ 设计态」恒等式不动。
+    - **页脚式**（上方有流式内容）：每页**贴内容区底**画（y = s + H - height）；
+      内容流每页的可用底 `bottomLimit` 抬到它顶部 —— 对**每一页**生效（含第 1 页），
+      这样数据表格跨页时每页都是「标题顶 / 内容中 / 页脚表格底」的一致版式。
+
+    页脚元素比内容区还高属于病态用法：不抬高 bottomLimit（否则可用区为负，
+    全部内容顺延爆页），落位退回设计坐标。
+  */
+  const flowTop = blocks.length ? Math.min(...blocks.map((b) => b.top)) : Infinity;
+  let f0 = 0;
+  let bottomLimit = H;
+  const repeated: Array<{ id: string; y: number }> = [];
+  for (const r of reps) {
+    const headerStyle = r.top + r.height <= flowTop + EPS;
+    if (headerStyle) {
+      // 只统计与内容窗口 [s, s+H] 相交的区间：整个在上边距区的不占内容区
+      const bottom = Math.min(r.top + r.height, s + H);
+      if (r.top < s + H - EPS && bottom > s + EPS) f0 = Math.max(f0, bottom - s);
+      repeated.push({ id: r.id, y: r.top });
+    } else if (r.height < H - EPS) {
+      bottomLimit = Math.min(bottomLimit, H - r.height);
+      repeated.push({ id: r.id, y: s + H - r.height });
+    } else {
+      repeated.push({ id: r.id, y: r.top });
+    }
+  }
 
   const ensurePage = (index: number): LayoutPage => {
     while (pages.length <= index) pages.push({ index: pages.length, items: [] });
@@ -153,14 +197,21 @@ export function paginate(input: PaginateInput): PreviewLayout {
     }
     warnings.push({ kind: "page-overflow", pageCount: 1 });
     for (const id of hiddenIds) warnings.push({ kind: "hidden", elementId: id });
-    return { pages: pages.length ? pages : [{ index: 0, items: [] }], warnings, repeatedIds, hiddenIds };
+    // 内容区高为 0 时"贴底"无从算起，重复元素一律按设计坐标
+    return {
+      pages: pages.length ? pages : [{ index: 0, items: [] }],
+      warnings,
+      repeatedIds,
+      repeated: reps.map((r) => ({ id: r.id, y: r.top })),
+      hiddenIds
+    };
   }
 
   for (const block of blocks) {
     if (block.breakable && block.rowHeights?.length) {
-      paginateBreakable(block, s, H, warnings, place);
+      paginateBreakable(block, s, H, f0, bottomLimit, warnings, place);
     } else {
-      paginateAtomic(block, s, H, warnings, place);
+      paginateAtomic(block, s, H, f0, bottomLimit, warnings, place);
     }
   }
 
@@ -175,7 +226,7 @@ export function paginate(input: PaginateInput): PreviewLayout {
   */
   if (!pages.length && (repeatedIds.length || hiddenIds.length)) pages.push({ index: 0, items: [] });
 
-  return { pages, warnings, repeatedIds, hiddenIds };
+  return { pages, warnings, repeatedIds, repeated, hiddenIds };
 }
 
 /**
@@ -188,11 +239,15 @@ function paginateAtomic(
   block: FlowBlock,
   s: number,
   H: number,
+  f0: number,
+  bottomLimit: number,
   warnings: LayoutWarning[],
   place: (page: number, item: PlacedItem) => void
 ): void {
   let p = naturalPage(block.top, s, H);
   let f = pageOffset(block.top, s, H, p);
+  // 自然落位到 p > 0 的页时，同样要让开每页重复元素占据的顶部区间
+  if (p > 0) f = Math.max(f, f0);
 
   // 比整页还高的块：无论怎么顺延都会溢出，放它"自然"该在的那一页 + 告警。
   // 绝不静默裁切 —— 用户必须知道少了一块。
@@ -208,22 +263,39 @@ function paginateAtomic(
   }
 
   /*
+    顺延页也放不下：本页放不下、而顺延页可用区只剩 bottomLimit - f0
+    （上让页眉式重复元素、下让页脚式重复元素），块比它还高（但比整页矮）。
+    不拦的话顺延循环会一直空转到触顶，把元素甩到第 500 页 —— 比裁切糟得多。
+    按"超高"同一口径就地放 + 告警。
+  */
+  if (f + block.height > bottomLimit + EPS && f0 + block.height > bottomLimit + EPS) {
+    warnings.push({
+      kind: "clipped",
+      elementId: block.elementId,
+      reason: `高 ${round1(block.height)}mm，扣除每页重复元素占位后可用区 ${round1(bottomLimit - f0)}mm，已按页裁切`
+    });
+    place(p, { elementId: block.elementId, y: s + f, height: block.height });
+    return;
+  }
+
+  /*
     顺延循环。最多两轮就会收敛：
-    f ∈ [0, H)，f + h > H ⇒ f > H - h；下一页 f' = max(0, f - H) = 0
-    ⇒ 0 + h ≤ H 成立。写 while 而不是 if，是为了让"将来 h > H 也能走通"这条路
+    f ∈ [f0, bottomLimit)，f + h > bottomLimit ⇒ 下一页 f' = max(f0, f - H) = f0
+    ⇒ f0 + h ≤ bottomLimit 成立（更大的块已被上面的"就地放"分支拦住）。
+    写 while 而不是 if，是为了让"将来 h > 可用区也能走通"这条路
     不至于因为提前假设而埋一个死循环。
   */
   let guard = 0;
-  while (f + block.height > H + EPS) {
+  while (f + block.height > bottomLimit + EPS) {
     p += 1;
-    f = Math.max(0, block.top - s - p * H);
+    f = Math.max(f0, block.top - s - p * H);
     if (p > MAX_PAGES || ++guard > MAX_PAGES) {
       warnings.push({ kind: "page-overflow", pageCount: MAX_PAGES });
       // 触顶后把落位拉回合法范围：夹到最后一页、并且让它至少落在内容区里。
       // 不夹的话它会以"第 501 页 + 页内 y = 9800000"的形式被画出来 ——
       // 一个谁也看不懂的结果，而告警只说了一句"页数超上限"。
       p = MAX_PAGES;
-      f = Math.min(Math.max(0, f), Math.max(0, H - block.height));
+      f = Math.min(Math.max(0, f), Math.max(0, bottomLimit - block.height));
       break;
     }
   }
@@ -244,6 +316,8 @@ function paginateBreakable(
   block: FlowBlock,
   s: number,
   H: number,
+  f0: number,
+  bottomLimit: number,
   warnings: LayoutWarning[],
   place: (page: number, item: PlacedItem) => void
 ): void {
@@ -254,10 +328,12 @@ function paginateBreakable(
 
   let p = naturalPage(block.top, s, H);
   let f = pageOffset(block.top, s, H, p);
+  // 自然落位到 p > 0 的页时，同样要让开每页重复元素占据的顶部区间
+  if (p > 0) f = Math.max(f, f0);
 
   // 整表放得下 → 整表放本页，一行都不切。这是绝大多数情况的路径，
   // 也是"顺延后刚好放得下"的落点。
-  if (f + block.height <= H + EPS) {
+  if (f + block.height <= bottomLimit + EPS) {
     place(p, {
       elementId: block.elementId,
       y: s + f,
@@ -281,7 +357,7 @@ function paginateBreakable(
 
     // 非首片要额外让出重复表头的高度
     const repeatHead = first ? 0 : headH;
-    const avail = H - f;
+    const avail = bottomLimit - f;
 
     if (repeatHead + rowHeights[row] > avail + EPS) {
       const need = repeatHead + rowHeights[row];
@@ -289,13 +365,14 @@ function paginateBreakable(
       /*
         分两种"放不下"，判据是**换到任何一页的页顶也放不下吗**：
 
-        1. 放不下（`need > H`）→ 这一行本身高过整页。
+        1. 放不下（`need > bottomLimit - f0`）→ 这一行比"顺延页可用区"
+           （上让页眉式、下让页脚式重复元素后）还高。
            **就地放**（与 `paginateAtomic` 的"超高块放它自然该在的位置"同一个口径），
            画出来会被裁，但元素不会凭空消失或把前面几页整页浪费掉。
            `row += 1` 是硬要求 —— 不前进就是死循环。
-        2. 只是本页余量不够 → 换一页顶部重排。这是本函数**唯一**的顺延来源。
+        2. 只是本页余量不够 → 换一页从顺延起点（f0）重排。这是本函数**唯一**的顺延来源。
       */
-      if (need > H + EPS) {
+      if (need > bottomLimit - f0 + EPS) {
         warnings.push({
           kind: "clipped",
           elementId: block.elementId,
@@ -312,12 +389,12 @@ function paginateBreakable(
         row += 1;
         first = false;
         p += 1;
-        f = 0;
+        f = f0;
         continue;
       }
 
       p += 1;
-      f = 0;
+      f = f0;
       if (p > MAX_PAGES) {
         warnings.push({ kind: "page-overflow", pageCount: MAX_PAGES });
         break;
@@ -346,7 +423,7 @@ function paginateBreakable(
     first = false;
     row = k;
     p += 1;
-    f = 0;
+    f = f0;
   }
 }
 

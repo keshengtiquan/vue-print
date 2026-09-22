@@ -82,8 +82,8 @@ const table = (id, top, rowHeights, headerRows) => ({
   breakable: true
 });
 
-const run = (blocks, repeatedIds = [], hiddenIds = []) =>
-  paginate({ paper: A4, margin: M10, blocks, repeatedIds, hiddenIds });
+const run = (blocks, repeated = [], hiddenIds = []) =>
+  paginate({ paper: A4, margin: M10, blocks, repeated, hiddenIds });
 
 /* ============================================================
    0. 内容区高
@@ -286,7 +286,8 @@ check("内容区高 = 纸张高 - 上下边距", contentHeight(A4, M10), 277);
 ============================================================ */
 
 {
-  const layout = run([atomic("a", 20, 50)], ["rep"], ["hid"]);
+  // 重复元素给个无害几何（top=0 高 5，整个在上边距区，不占内容区）
+  const layout = run([atomic("a", 20, 50)], [{ id: "rep", top: 0, height: 5 }], ["hid"]);
   checkTrue("12.1 隐藏元素不进分页流", pagesOf(layout, "hid").length === 0);
   check("12.2 隐藏元素 id 被记录", layout.hiddenIds, ["hid"]);
   checkTrue(
@@ -324,7 +325,6 @@ check("内容区高 = 纸张高 - 上下边距", contentHeight(A4, M10), 277);
     paper: { widthMm: 100, heightMm: 50 },
     margin: { top: 30, right: 10, bottom: 30, left: 10 },
     blocks: [atomic("a", 10, 20)],
-    repeatedIds: [],
     hiddenIds: []
   });
   checkTrue("14.1 不抛错、至少一页", layout.pages.length >= 1);
@@ -379,6 +379,146 @@ check("内容区高 = 纸张高 - 上下边距", contentHeight(A4, M10), 277);
   // 稀疏实测（长度不足 / 缺省下标）→ 缺省回落声明高
   const m4 = [0, 25];
   check("16.5 稀疏实测缺省回落", expansionRowHeights(el, expansion, m4), [8, 25, 10, 8]);
+}
+
+/* ============================================================
+   17. 每页重复元素：顺延页让位（2026-09-22 真机 bug 回归断言）
+============================================================ */
+/*
+   场景：标题 30–38mm 设「每页重复」，表格 40mm 起跨页。
+   修复前：第 2 页表格分片从内容区顶（y=10）重排 → 压过标题（重叠）。
+   修复后：顺延页起点让到重复元素底部（f0 = 38-10 = 28 → y=38），
+   第 1 页保持设计态（f0 不约束 p=0，恒等式不破）。
+*/
+
+{
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [table("t", 40, Array(100).fill(8), 0)],
+    repeated: [{ id: "title", top: 30, height: 8 }],
+    hiddenIds: []
+  });
+
+  const s1 = itemOf(layout, 0, "t");
+  const s2 = itemOf(layout, 1, "t");
+  check("17.1 第 1 片保持设计态位置（y=40）", s1?.y, 40);
+  check("17.2 第 2 片让到重复元素底下（y=38，不是页顶 10）", s2?.y, 38);
+  checkTrue(
+    "17.3 第 2 片起于重复元素底部之下（不重叠）",
+    s2 !== null && s2.y >= 38 - 1e-4
+  );
+  // 页眉式落位 = 设计坐标原样
+  check("17.3b 页眉式重复元素落位 = 设计坐标", layout.repeated, [{ id: "title", y: 30 }]);
+}
+
+{
+  // 重复元素整个在下边距区（bottom ≥ s+H）→ 不占内容区，顺延页仍从页顶重排
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [table("t", 40, Array(100).fill(8), 0)],
+    repeated: [{ id: "footer", top: 290, height: 5 }],
+    hiddenIds: []
+  });
+  const s2 = itemOf(layout, 1, "t");
+  check("17.4 页脚在下边距区不让位（第 2 片 y=10）", s2?.y, 10);
+}
+
+{
+  // 原子块顺延让位：top=250, height=50 → f=240, 290 > 277 → 顺延页 f=max(28, …)=28 → y=38
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [atomic("a", 250, 50)],
+    repeated: [{ id: "title", top: 30, height: 8 }],
+    hiddenIds: []
+  });
+  const a2 = itemOf(layout, 1, "a");
+  check("17.5 原子块顺延页让位（y=38）", a2?.y, 38);
+}
+
+{
+  // 顺延页也放不下（高 270 ∈ (可用区 249, H=277]）：按超高口径就地放 + 告警，
+  // 而不是顺延循环空转把元素甩到第 500 页
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [atomic("a", 20, 270)],
+    repeated: [{ id: "title", top: 30, height: 8 }],
+    hiddenIds: []
+  });
+  const a1 = itemOf(layout, 0, "a");
+  check("17.6 顺延页放不下时就地放自然页（y=20，设计态位置）", a1?.y, 20);
+  checkTrue(
+    "17.7 给出裁切告警（而非 page-overflow 甩页）",
+    layout.warnings.some((w) => w.kind === "clipped" && w.elementId === "a") &&
+      !layout.warnings.some((w) => w.kind === "page-overflow")
+  );
+}
+
+{
+  // 不传 repeated ≡ 旧语义（顺延页从页顶重排）
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [table("t", 40, Array(100).fill(8), 0)],
+    hiddenIds: []
+  });
+  const s2 = itemOf(layout, 1, "t");
+  check("17.8 不传 repeated 时顺延页仍从页顶重排", s2?.y, 10);
+}
+
+/* ============================================================
+   18. 页脚式重复元素：每页贴内容区底，内容止于它上方
+============================================================ */
+/*
+   场景（2026-09-22 老板真实版式）：标题 10–20mm 设「每页重复」（页眉式），
+   数据表格 100mm 起跨页（流式），第三个表格 220mm、高 40mm 也设「每页重复」。
+   第三个表格在流式内容之下 → **页脚式**：每页贴内容区底（y = s+H-40 = 247），
+   内容流每页止于它上方（bottomLimit = 277-40 = 237）——
+   第 1 页与后续页版式一致：标题顶 / 内容中 / 页脚表格底。
+   修复前：第 1 页页脚表格留在设计坐标（被数据表格压过），
+   第 2 页数据表格反而被让位规则挤到页脚表格下面（上下颠倒）。
+*/
+
+{
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [table("t", 100, Array(100).fill(8), 0)],
+    repeated: [
+      { id: "title", top: 10, height: 10 },
+      { id: "footerT", top: 220, height: 40 }
+    ],
+    hiddenIds: []
+  });
+
+  const s1 = itemOf(layout, 0, "t");
+  const s2 = itemOf(layout, 1, "t");
+  check("18.1 页眉式标题落位 = 设计坐标（y=10）", layout.repeated[0], { id: "title", y: 10 });
+  check("18.2 页脚式表格落位 = 贴内容区底（y=247）", layout.repeated[1], { id: "footerT", y: 247 });
+  check("18.3 第 1 片保持设计态位置（y=100）", s1?.y, 100);
+  check("18.4 第 2 片从页眉式标题底下开始（y=20）", s2?.y, 20);
+  // 内容可用底（纸张坐标）= s + bottomLimit = 10 + 237 = 247
+  checkTrue("18.5 第 1 片止于页脚表格上方", s1 !== null && s1.y + s1.height <= 247 + 1e-4);
+  checkTrue("18.6 第 2 片止于页脚表格上方", s2 !== null && s2.y + s2.height <= 247 + 1e-4);
+  checkTrue(
+    "18.7 第 2 片高度用满可用区（28 行 × 8 = 224 ≤ 227）",
+    s2 !== null && Math.abs(s2.height - 224) < 1e-4
+  );
+}
+
+{
+  // 无流式内容时没有"页眉/页脚"之分 → 全按设计坐标，不抬高可用底
+  const layout = paginate({
+    paper: A4,
+    margin: M10,
+    blocks: [],
+    repeated: [{ id: "box", top: 200, height: 40 }],
+    hiddenIds: []
+  });
+  check("18.8 无流式内容时重复元素按设计坐标", layout.repeated, [{ id: "box", y: 200 }]);
 }
 
 /* ============================================================

@@ -54,7 +54,8 @@ export function buildLayout(input: LayoutInput): PreviewLayout {
   const warnings: LayoutWarning[] = [...(input.warnings ?? [])];
 
   const hiddenIds: string[] = [];
-  const repeatedIds: string[] = [];
+  /** 每页重复元素（带纵向几何）：分页器按它与流式内容的相对位置分页眉/页脚式锚定（§3.2） */
+  const repeated: Array<{ id: string; top: number; height: number }> = [];
   const flow: Element[] = [];
 
   elements.forEach((el) => {
@@ -66,8 +67,9 @@ export function buildLayout(input: LayoutInput): PreviewLayout {
       return;
     }
     if (isOutsidePaper(el, paper)) warnings.push({ kind: "outside-paper", elementId: el.id });
-    if (el.repeatOnEachPage === true) repeatedIds.push(el.id);
-    else flow.push(el);
+    if (el.repeatOnEachPage === true) {
+      repeated.push({ id: el.id, top: el.y, height: el.height });
+    } else flow.push(el);
   });
 
   /*
@@ -85,7 +87,7 @@ export function buildLayout(input: LayoutInput): PreviewLayout {
 
   const blocks: FlowBlock[] = ordered.map((el) => toBlock(el, input));
 
-  return paginate({ paper, margin, blocks, repeatedIds, hiddenIds, warnings });
+  return paginate({ paper, margin, blocks, repeated, hiddenIds, warnings });
 }
 
 /** 单列成函数是为了让它能被单独推理 —— 它承载了"表格展开后多高"这条规则 */
