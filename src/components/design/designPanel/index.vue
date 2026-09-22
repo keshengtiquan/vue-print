@@ -84,6 +84,8 @@
             <ElementLayer />
             <!-- 页边距辅助线：盖在元素之上（参考线语义），但 pointer-events: none 不拦截交互 -->
             <MarginGuides v-if="designState.showMarginGuides" />
+            <!-- 页码占位（示意）：开启页码时显示位置，不渲染真实数据 -->
+            <PageNumberPlaceholder v-if="designState.pageNumber.enabled" />
           </div>
         </CanvasContextMenu>
 
@@ -109,6 +111,7 @@ import { useResizeObserver } from "@vueuse/core";
 import Ruler from "./components/ruler.vue";
 import ElementLayer from "./components/elements/ElementLayer.vue";
 import MarginGuides from "./components/MarginGuides.vue";
+import PageNumberPlaceholder from "./components/PageNumberPlaceholder.vue";
 import PaperGrid from "./components/PaperGrid.vue";
 import GuideLines from "./components/GuideLines.vue";
 import CanvasContextMenu from "./components/CanvasContextMenu.vue";

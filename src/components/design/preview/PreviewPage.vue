@@ -43,7 +43,8 @@
     -->
     <div
       v-if="pageNumberText"
-      class="pointer-events-none absolute inset-x-0 flex justify-center"
+      class="pointer-events-none absolute inset-x-0 flex"
+      :class="footerJustifyClass"
       :style="footerStyle"
     >
       <span :style="footerTextStyle">{{ pageNumberText }}</span>
@@ -103,6 +104,25 @@ const pageNumberText = computed(() => {
     pageCount: props.pageCount
   };
   return renderTemplate(design.pageNumber.template, buildEmptyContext(sys, "blank"));
+});
+
+/**
+ * 页脚横向对齐。
+ *
+ * 奇偶页分侧（`oddEven`）优先于 `align`：奇数页靠右、偶数页靠左（书刊式，
+ * 双面装订后页码贴装订线外侧）。未开分侧时用 `align`（左 / 中 / 右）。
+ * 这里只负责"靠哪边"，水平留白由 footerStyle 的左右 padding 决定。
+ */
+const footerJustifyClass = computed(() => {
+  const oddEven = design.pageNumber.oddEven;
+  if (oddEven) {
+    const isOdd = (props.page.index + 1) % 2 === 1;
+    return isOdd ? "justify-end" : "justify-start";
+  }
+  const align = design.pageNumber.align;
+  if (align === "left") return "justify-start";
+  if (align === "right") return "justify-end";
+  return "justify-center";
 });
 
 /**

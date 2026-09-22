@@ -58,11 +58,16 @@ export const useDesignStore = defineStore("design", {
      *
      * - `enabled`：是否在每页底部页边距内显示页码；
      * - `template`：页码文本模板，支持系统变量占位符
-     *   `{$pageIndex}`（当前页码，1 起）/ `{$pageCount}`（总页数）。
+     *   `{$pageIndex}`（当前页码，1 起）/ `{$pageCount}`（总页数）；
+     * - `align`：底部对齐位置 `left | center | right`；
+     * - `oddEven`：奇偶页分侧（书刊式）——开启后奇数页靠右、偶数页靠左，
+     *   优先于 `align` 生效。
      */
     pageNumber: {
       enabled: true,
-      template: "第 {$pageIndex} 页 / 共 {$pageCount} 页"
+      template: "第 {$pageIndex} 页 / 共 {$pageCount} 页",
+      align: "center" as "left" | "center" | "right",
+      oddEven: false
     },
     /** 画布上是否显示页边距辅助线（视图偏好，不参与打印输出） */
     showMarginGuides: true,
