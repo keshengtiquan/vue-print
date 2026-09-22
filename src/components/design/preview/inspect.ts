@@ -24,7 +24,7 @@
  * 的既有约束，不能为了 node 可跑而在本地再写一份正则。
  * 所以体检**不在**自检脚本的覆盖范围内（分页是，因为它无依赖）。
  */
-import { makeFieldToken, parseTemplate, splitTokenKey, type TemplateContext } from "@/lib/template";
+import { parseTemplate, splitTokenKey, type TemplateContext } from "@/lib/template";
 import type { DataRow } from "@/components/design/data/types";
 import type { Element, TableElement } from "@/components/design/types";
 import type { LayoutWarning } from "./types";
@@ -49,8 +49,8 @@ export interface InspectTarget {
 /**
  * 收集一个元素上所有含占位符的文本。
  *
- * 表格要连 `columnFields` 一起收 —— 列映射是"格子为空时取该列字段"，
- * 它同样会在预览里变成值，所以同样可能取不到。
+ * 表格只收格子里的占位符内容 —— 「列映射」/ `columnFields` 兜底已删（2026-09-22），
+ * 取数只剩"往格子里写占位符"这一条显式路径。
  */
 export function collectPlaceholderTexts(el: Element): string[] {
   const out: string[] = [];
@@ -65,11 +65,6 @@ export function collectPlaceholderTexts(el: Element): string[] {
       const value = cell.content?.value;
       if (value) out.push(value);
     }
-    // 列映射存的可能是裸字段名，也可能是整段占位符 —— 规范化交给
-    // `makeFieldToken`（全仓唯一构造点），这里不自己拼花括号。
-    // 与 `PreviewTable.resolveCell` 共用同一个规范化函数，
-    // 才不会出现"预览渲得出值、体检却说字段不存在"这种自相矛盾。
-    for (const field of table.columnFields ?? []) if (field) out.push(makeFieldToken(field));
   }
   return out;
 }

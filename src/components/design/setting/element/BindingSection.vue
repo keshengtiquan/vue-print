@@ -105,46 +105,6 @@
           </p>
         </div>
 
-        <!-- 列映射：显示"实际生效"的映射（明细行格子的单一占位符优先，columnFields 只兜底空格） -->
-        <div v-if="hasDetail" class="space-y-1.5">
-          <Label>列映射</Label>
-          <div
-            v-for="(width, c) in tableEl.colWidths"
-            :key="c"
-            class="flex items-center gap-2 text-[11px]"
-            :title="cellFieldOfColumn(c) !== undefined ? '该列映射来自明细行单元格里的占位符' : ''"
-          >
-            <span class="text-muted-foreground w-6 shrink-0 font-mono">{{ colLabel(c) }} 列</span>
-            <Select
-              class="flex-1"
-              :model-value="columnDisplayValue(c)"
-              @update:model-value="onColumnField(c, $event)"
-            >
-              <SelectTrigger class="w-full cursor-pointer">
-                <SelectValue placeholder="（不映射）" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem :value="NO_FIELD">（不映射）</SelectItem>
-                <SelectItem v-for="f in fieldOptions" :key="f.name" :value="f.name">
-                  {{ f.label || f.name }}
-                </SelectItem>
-                <!-- 格子里的占位符引用了已被删除的字段：选项列表里没有它，但不许显示成
-                     「不映射」—— 那会把"字段失效"伪装成"没有映射" -->
-                <SelectItem
-                  v-if="!isKnownField(columnDisplayValue(c))"
-                  :value="columnDisplayValue(c)"
-                >
-                  {{ columnDisplayValue(c) }}（字段已失效）
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <p class="text-muted-foreground text-[11px] leading-4">
-            下拉显示该列实际生效的字段：明细行格子里写了占位符时以格子为准（改动会写回格子），
-            空格子才用这里选的字段兜底。
-          </p>
-        </div>
-
         <!-- 明细行高自适应 -->
         <div class="flex items-center justify-between gap-3">
           <div>
@@ -220,18 +180,14 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useDesignStore } from "@/store/modules/design";
 import { useDataBindingStore } from "@/store/modules/dataBinding";
-import { colLabel } from "@/components/design/table/model";
 import { flattenFields } from "@/components/design/data/model";
 import { useDataBinding } from "@/components/design/data/useDataBinding";
-import { makeFieldToken, parseTemplate, splitTokenKey } from "@/lib/template";
 import type { TableElement } from "@/components/design/types";
 
 /** 哨兵值：SelectItem 不接受空字符串，所以"未绑定"要有个非空值来表示 */
 const NONE = "__none__";
 /** 同上：「明细模板行 = 无」 */
 const NO_DETAIL = "__none__";
-/** 同上：「该列不映射字段」 */
-const NO_FIELD = "__none__";
 
 const design = useDesignStore();
 const binding = useDataBindingStore();
@@ -325,79 +281,6 @@ function onHeaderRows(value: string | number) {
   design.updateElement(table.id, { headerRows: Math.max(0, Math.floor(n)) });
 }
 
-/**
- * 某列在**明细模板行**上的"单元格驱动"字段。
- *
- * 预览取数规则（preview-design.md §3.6）是"格子为准，列映射只兜底空格"，
- * 所以这列**实际生效**的映射 = 明细行格子里恰好写了单一占位符时取它，否则 `columnFields[c]`。
- * 之前下拉只读 `columnFields`，于是"拖了字段进格子、下拉却显示不映射"——
- * 显示层和取数层各说各话，这就是老板 2026-09-21 指出的不一致。
- *
- * 三种情况不算"单元格驱动"，返回 undefined（回落到 columnFields 显示）：
- * - 没声明明细行 / 格子被合并覆盖；
- * - 混排内容（"单价：{单价} 元"）—— 它表达不了"列 → 字段"这层映射；
- * - 占位符前缀指向别的数据集 —— 不能冒充本数据集的字段。
- */
-function cellFieldOfColumn(c: number): string | undefined {
-  const table = tableEl.value;
-  const d = table?.detailRowIndex;
-  if (!table || typeof d !== "number") return undefined;
-  const cell = table.cells[d * table.cols + c];
-  if (!cell || cell.covered) return undefined;
-  const value = cell.content?.type === "text" ? (cell.content.value ?? "") : "";
-  const tokens = parseTemplate(value);
-  // 整格（trim 后）必须恰好就是这个占位符，多一个字符都算混排
-  if (tokens.length !== 1 || tokens[0].raw !== value.trim()) return undefined;
-  if (tokens[0].key.startsWith("$")) return undefined;
-  const { dataSetName, field } = splitTokenKey(tokens[0].key);
-  if (!field) return undefined;
-  if (dataSetName && dataSetName !== activeDataSet.value?.name) return undefined;
-  return field;
-}
-
-/** 列映射下拉的显示值：生效字段优先，没生效字段才看声明的兜底，都没有 = 不映射 */
-function columnDisplayValue(c: number): string {
-  return cellFieldOfColumn(c) ?? tableEl.value?.columnFields?.[c] ?? NO_FIELD;
-}
-
-/** 该值是否是下拉里已存在的选项（失效字段要动态补一项，不能显示成"不映射"） */
-function isKnownField(v: string): boolean {
-  return v === NO_FIELD || fieldOptions.value.some((f) => f.name === v);
-}
-
-/**
- * 写某一列的字段映射。
- *
- * **格子驱动的列，改动写回格子**（走 `updateTable`，整包替换铁律不变）：
- * 选字段 = 替换格子里那个占位符，选「不映射」= 清空格子的占位符
- * （此时格子 trim 后恰好只有一个占位符、没有别的可丢内容，清空不构成破坏）。
- * 否则维持原语义：写 `columnFields` 兜底声明，绝不碰格子。
- *
- * `columnFields` 必须是**整份新数组**：它是 `(string|null)[]`，
- * 而点路径写不进去（`design.updateElement` 只做 `Object.assign`，
- * 原地改数组元素会绕过响应式的引用比较 —— 长度不变时连重渲染都不会触发）。
- */
-function onColumnField(c: number, value: string | number) {
-  const table = tableEl.value;
-  if (!table) return;
-  const v = String(value);
-
-  if (cellFieldOfColumn(c) !== undefined) {
-    const d = table.detailRowIndex as number;
-    design.updateTable(table.id, (el) => {
-      const cell = el.cells[d * el.cols + c];
-      if (!cell || cell.covered) return;
-      const next = v === NO_FIELD ? "" : makeFieldToken(v, activeDataSet.value?.name);
-      cell.content = { ...(cell.content ?? { type: "text" as const }), type: "text", value: next };
-    });
-    return;
-  }
-
-  const next = Array.from({ length: table.cols }, (_, i) => table.columnFields?.[i] ?? null);
-  next[c] = v === NO_FIELD ? null : v;
-  design.updateElement(table.id, { columnFields: next });
-}
-
 function setBreakAcrossPages(value: boolean) {
   const table = tableEl.value;
   if (table) design.updateElement(table.id, { allowBreakAcrossPages: value });
@@ -414,8 +297,8 @@ const detailAutoHeight = computed(() => {
 /**
  * 开关明细行的自适应行高。
  *
- * `rowHeightModes` 是数组，必须整份新数组写（与 `columnFields` 同款教训：
- * 原地改元素绕过响应式引用比较，长度不变时连重渲染都不触发）。
+ * `rowHeightModes` 是数组，必须整份新数组写：
+ * 原地改元素绕过响应式引用比较，长度不变时连重渲染都不触发。
  * 只改明细模板行那一格，其余行保持原样。
  */
 function setDetailAutoHeight(value: boolean) {

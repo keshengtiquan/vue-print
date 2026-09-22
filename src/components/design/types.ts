@@ -216,18 +216,6 @@ export interface TableElement extends BaseElement {
    * 都会再夹一次。
    */
   headerRows?: number;
-  /**
-   * 列 → 字段映射（长度 = cols）。**只在单元格为空时兜底取值**。
-   *
-   * 与"行 → 记录"是两个正交的映射，必须同时成立才有意义：
-   * 明细行决定了"这一行取第几条记录"，列映射决定了"这一格取该记录的哪个字段"。
-   * 只做一半的话，明细行复制出来的是 N 行**完全相同**的内容 —— 视觉噪音。
-   *
-   * 两条硬约束：
-   * 1. **绝不回写单元格内容**。它只是取值兜底，单元格里写了 `{品名}` 时以单元格为准；
-   * 2. 长度必须跟着 `cols` 走（`insertCol` / `removeCol` 负责维护）。
-   */
-  columnFields?: (string | null)[];
   /** 表格默认单元格边框与内边距：新格子与"缺省边"的回落值 */
   cellStyle?: {
     borderColor?: string;

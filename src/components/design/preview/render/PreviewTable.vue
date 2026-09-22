@@ -50,15 +50,15 @@
  * 结构一致、CSS 能共享**（浏览器的打印引擎对 table 有原生分页支持：
  * 表头逐页重复、行内不断开 —— 那是 div 网格拿不到的）。现在多花的代价是零。
  *
- * ## 取数规则（§3.6，两半一起才成立）
+ * ## 取数规则（§3.6）
  *
  * - **行 → 记录**：已由分页层决定（`rows[i].ctx` 就是那一行的上下文）；
- * - **列 → 字段**：只在**格子为空**时兜底。格子写了内容就以格子为准 ——
- *   `columnFields` 绝不回写单元格内容，它只是"这一列没写字也去取这个字段"。
+ * - **列 → 字段**：由**格子里写的占位符**决定，`renderTemplate` 逐行渲值。
+ *   （「列映射」与 `columnFields` 兜底已删，2026-09-22 —— 取数只剩显式写占位符一条路。）
  */
 import { computed, nextTick, onMounted, onUpdated, ref } from "vue";
 import type { CSSProperties } from "vue";
-import { makeFieldToken, renderTemplate, type TemplateContext } from "@/lib/template";
+import { renderTemplate, type TemplateContext } from "@/lib/template";
 import { gridCells, type GridRef } from "@/components/design/table/model";
 import { DEFAULT_CELL_PADDING } from "@/components/design/table/model";
 import {
@@ -279,18 +279,17 @@ defineExpose({ measure });
 /**
  * 一格画什么。
  *
- * 三种情况，优先级从上到下：
+ * 两种情况，优先级从上到下：
  * 1. 图片格 → 字段值当图片地址（取不到值就空串，**绝不把 `{商品图}` 当 src**，
  *    否则浏览器会当相对路径发 404 + 裂图）；
- * 2. 格子有内容 → `renderTemplate` 渲值（内容里可以是"单价：{单价} 元"这样的混排）；
- * 3. 格子为空且该列声明了列映射 → 用 `columnFields[c]` 兜底。
+ * 2. 格子有内容 → `renderTemplate` 渲值（内容里可以是"单价：{单价} 元"这样的混排）。
  *
- * 第 3 条是**兜底而不是覆盖**：格子写了东西就以格子为准。这是 `columnFields`
- * 与"把内容直接写进单元格"两条路并存的前提 —— 否则它就是一份会覆盖用户输入的隐式配置。
+ * 空格子取数这条路已经删掉（连同「列映射」UI 与 `columnFields` 字段一起，
+ * 2026-09-22）：表格取数只靠"往格子里写占位符"这一条显式路径。
  */
 function resolveCell(
   content: TableCellContent | undefined,
-  c: number,
+  _c: number,
   ctx: TemplateContext
 ): { text: string; image: string } {
   if (content?.type === "image") {
@@ -300,8 +299,6 @@ function resolveCell(
   const raw = content?.type === "text" ? (content.value ?? "") : "";
   if (raw !== "") return { text: renderTemplate(raw, ctx), image: "" };
 
-  const field = props.element.columnFields?.[c];
-  if (field) return { text: renderTemplate(makeFieldToken(field), ctx), image: "" };
   return { text: "", image: "" };
 }
 </script>

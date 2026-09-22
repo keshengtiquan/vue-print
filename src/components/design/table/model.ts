@@ -235,15 +235,6 @@ export function normalizeTable(el: TableElement): void {
     const max = el.detailRowIndex ?? el.rows;
     el.headerRows = clamp(Math.floor(el.headerRows) || 0, 0, max);
   }
-  if (Array.isArray(el.columnFields)) {
-    // 长度必须跟 cols 走：`insertCol` / `removeCol` 会维护它，但外部赋值（粘贴、
-    // 将来跨模板复制）不一定 —— 长度错位的后果是"某一列永远取不到值"，很难看出原因。
-    if (el.columnFields.length !== el.cols) {
-      el.columnFields = Array.from({ length: el.cols }, (_, i) => el.columnFields?.[i] ?? null);
-    }
-  } else if (el.columnFields !== undefined) {
-    el.columnFields = undefined;
-  }
 }
 
 /**
@@ -684,8 +675,6 @@ export function insertCol(el: TableElement, at: number): void {
   el.colWidths.splice(a, 0, borrowSize(el.colWidths, a));
   el.colWidths = fitTracks(el.colWidths, total);
   el.colWidthModes?.splice(a, 0, "fixed");
-  // 列映射的长度必须跟 cols 走：新列没有字段（null = 该列不兜底取值）
-  el.columnFields?.splice(a, 0, null);
 }
 
 /** 删除第 at 行。最后一行不允许删（表格不能退化成 0 行） */
@@ -729,7 +718,6 @@ export function removeCol(el: TableElement, at: number): void {
   el.cells = next;
   el.colWidths.splice(a, 1);
   el.colWidthModes?.splice(a, 1);
-  el.columnFields?.splice(a, 1);
 }
 
 /** 清空选区内容（保留合并与样式） */
